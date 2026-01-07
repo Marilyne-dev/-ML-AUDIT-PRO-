@@ -48,12 +48,30 @@ async def create_mission(mission_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- ROUTE 2 : RÉCUPÉRER TOUTES LES MISSIONS (ADMIN) ---
-@app.get("/missions")
-async def get_missions():
+@app.post("/missions")
+async def create_mission(mission_data: dict):
     try:
-        response = supabase.table("missions").select("*").order('created_at', desc=True).execute()
+        # Calcul des seuils v4.0
+        ca = float(mission_data.get('chiffre_affaires_n', 0))
+        # ISA 320 : 1% du CA
+        s_signif = ca * 0.01
+        
+        new_mission = {
+            "raison_sociale": mission_data.get('raison_sociale'),
+            "chiffre_affaires_n": ca,
+            "resultat_net_n": float(mission_data.get('resultat_net_n', 0)),
+            "total_bilan": float(mission_data.get('total_bilan', 0)),
+            "seuil_signification": s_signif,
+            "seuil_planification": s_signif * 0.75,
+            "seuil_remontee": s_signif * 0.05,
+            "statut": "Initialisée",
+            "client_email": mission_data.get('client_email') # Pour savoir à qui c'est
+        }
+
+        response = supabase.table("missions").insert(new_mission).execute()
         return response.data
     except Exception as e:
+        print(f"Erreur backend: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- ROUTE 3 : ANALYSER UN FICHIER (FEC ou EXCEL) ---
