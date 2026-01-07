@@ -20,45 +20,30 @@ def home():
     return {"message": "API ML-AUDIT PRO opérationnelle v4.0"}
 
 # --- ROUTE 1 : ANALYSER UN FICHIER (Pour le Client) ---
-@app.post("/analyze/{mission_id}")
-async def analyze_fec(mission_id: str, file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
-        try:
-            df = pd.read_csv(io.BytesIO(contents), sep=None, engine='python', dtype=str)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail="Format de fichier invalide. CSV ou TXT requis.")
+# Dans backend/main.py (Route createMission)
+@app.post("/missions")
+async def create_mission(mission_data: dict):
+    ca = mission_data.get('chiffre_affaires_n', 0)
+    resultat = mission_data.get('resultat_net_n', 0)
+    total_bilan = mission_data.get('total_bilan', 0)
 
-        df.columns = [c.lower() for c in df.columns]
+    # CALCUL LÉGAL ISA 320 (Basé sur ton code source v4.0)
+    seuils = [
+        ca * 0.01,           # 1% du CA
+        resultat * 0.05 if resultat > 0 else 0, # 5% du résultat
+        total_bilan * 0.005  # 0.5% du total bilan
+    ]
+    seuil_signification = max(s for s in seuils if s > 0)
+    seuil_planification = seuil_signification * 0.75
+    seuil_remontee = seuil_signification * 0.05
 
-        cols_requises = ['debit', 'compte_num', 'ecriture_lib', 'ecriture_date']
-        for col in cols_requises:
-            if col not in df.columns:
-                raise HTTPException(status_code=400, detail=f"Colonne manquante : {col}")
-
-        df['debit'] = pd.to_numeric(df['debit'].str.replace(',', '.'), errors='coerce').fillna(0)
-
-        engine = AuditEngine(mission_id)
-        anomalies = engine.executer_analyse_complete(df)
-
-        if anomalies:
-            for a in anomalies:
-                a['mission_id'] = mission_id
-            
-            # Enregistrement dans Supabase
-            supabase.table("anomalies").insert(anomalies).execute()
-            
-            # Mise à jour du statut
-            supabase.table("missions").update({"statut": "Analyse terminée"}).eq("id", mission_id).execute()
-
-        return {
-            "status": "success",
-            "message": f"{len(anomalies)} anomalies détectées.",
-            "anomalies_count": len(anomalies)
-        }
-    except Exception as e:
-        print(f"Erreur : {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # Insertion enrichie
+    mission_data.update({
+        "seuil_signification": seuil_signification,
+        "seuil_planification": seuil_planification,
+        "seuil_remontee": seuil_remontee
+    })
+    return supabase.table("missions").insert(mission_data).execute()
 
 # --- ROUTE 2 : RÉCUPÉRER LES MISSIONS (Pour l'Admin) ---
 @app.get("/missions")
@@ -82,3 +67,18 @@ async def get_anomalies(mission_id: str):
         return response.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    # Dans backend/main.py
+@app.get("/opinion/{mission_id}")
+async def get_opinion(mission_id: str):
+    # 1. On récupère les anomalies
+    anomalies = supabase.table("anomalies").select("montant").eq("mission_id", mission_id).execute()
+    mission = supabase.table("missions").select("seuil_signification").eq("id", mission_id).single().execute()
+    
+    total_impact = sum(a['montant'] for a in anomalies.data if a['montant'])
+    seuil = mission.data['seuil_signification']
+
+    if total_impact > seuil:
+        return {"opinion": "CERTIFICATION AVEC RÉSERVES", "motif": "Impact financier supérieur au seuil."}
+    else:
+        return {"opinion": "CERTIFICATION SANS RÉSERVE", "motif": "Les anomalies sont immatérielles."}
