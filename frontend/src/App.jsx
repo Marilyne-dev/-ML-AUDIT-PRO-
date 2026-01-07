@@ -29,7 +29,7 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const ADMIN_EMAILS = ['contact@rvj-audit.com', 'ton-email@admin.com'];
+  const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {

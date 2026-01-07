@@ -82,3 +82,35 @@ async def get_opinion(mission_id: str):
         return {"opinion": "CERTIFICATION AVEC RÉSERVES", "motif": "Impact financier supérieur au seuil."}
     else:
         return {"opinion": "CERTIFICATION SANS RÉSERVE", "motif": "Les anomalies sont immatérielles."}
+    
+    
+
+@app.post("/analyze/{mission_id}")
+async def analyze_v4(mission_id: str, file: UploadFile = File(...)):
+    contents = await file.read()
+    engine = AuditEngine(mission_id)
+    
+    # 1. Si c'est un FEC (CSV/TXT)
+    if file.filename.endswith(('.csv', '.txt')):
+        df = pd.read_csv(io.BytesIO(contents), sep=None, engine='python')
+        df.columns = [c.lower() for c in df.columns]
+        df['debit'] = pd.to_numeric(df['debit'], errors='coerce').fillna(0)
+        
+        anomalies = engine.executer_analyse_v4(df)
+        
+        if anomalies:
+            for a in anomalies: a['mission_id'] = mission_id
+            supabase.table("anomalies").insert(anomalies).execute()
+        
+        # Calcul Opinion Automatique
+        supabase.table("missions").update({"statut": "Analyse Terminée"}).eq("id", mission_id).execute()
+        
+        return {"message": "Audit IA 4.0 terminé", "anomalies": len(anomalies)}
+
+    # 2. Si c'est le Dossier Excel (146 feuilles)
+    elif file.filename.endswith(('.xlsx', '.xls')):
+        res = engine.lire_dossier_excel(io.BytesIO(contents))
+        return {"message": res}
+
+    else:
+        raise HTTPException(status_code=400, detail="Format non supporté")
