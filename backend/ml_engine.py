@@ -9,9 +9,9 @@ class AuditEngine:
     def __init__(self, mission_id):
         self.mission_id = mission_id
         # Initialisation du client Claude
-        self.claude_client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
-        )
+        # Si la clé n'est pas encore là, on met une valeur bidon pour ne pas faire planter le démarrage
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "clé_manquante")
+        self.claude_client = anthropic.Anthropic(api_key=api_key)
 
     def executer_analyse_v4(self, df):
         """
@@ -20,75 +20,60 @@ class AuditEngine:
         """
         anomalies = []
         
-        # 1. Nettoyage et Normalisation des données
-        # On s'assure que les colonnes sont en minuscules
-        df.columns = [c.lower() for c in df.columns]
-        
-        # Mapping des colonnes FEC standard vers nos noms internes si besoin
-        col_mapping = {
-            'debit': 'debit', 'credit': 'credit', 
-            'comptenum': 'compte_num', 'ecriturelib': 'ecriture_lib',
-            'ecrituredate': 'ecriture_date', 'journalcode': 'journal_code'
-        }
-        
-        # Vérification des colonnes minimales requises
-        for standard_col in ['debit', 'credit', 'ecriturelib']:
-            if standard_col not in df.columns:
-                # Tentative de trouver la colonne correspondante dans le fichier FEC
-                found = False
-                for col in df.columns:
-                    if standard_col in col:
-                        df.rename(columns={col: standard_col}, inplace=True)
-                        found = True
-                        break
-        
-        # Conversion numérique
-        df['debit'] = pd.to_numeric(df['debit'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        df['credit'] = pd.to_numeric(df['credit'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        # NOTE : df arrive déjà nettoyé par main.py
+        # Les colonnes sont garanties d'être : 'journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit'
+
+        # Conversion numérique de sécurité (au cas où)
+        # On remplace les virgules par des points et on force le type float
+        for col in ['debit', 'credit']:
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         # --- PHASE 1 : ANALYSE PYTHON (RAPIDE) ---
-        # On garde tes règles existantes qui sont très bien pour le "hard skills"
-        anomalies.extend(self._analyse_benford(df))
-        anomalies.extend(self._analyse_tracfin(df))
-        anomalies.extend(self._analyse_comptes_sensibles(df))
+        try:
+            anomalies.extend(self._analyse_benford(df))
+            anomalies.extend(self._analyse_tracfin(df))
+            anomalies.extend(self._analyse_comptes_sensibles(df))
+        except Exception as e:
+            print(f"Erreur lors de l'analyse Python : {e}")
         
         # --- PHASE 2 : ANALYSE CLAUDE AI (INTELLIGENTE) ---
-        # On prépare un échantillon de données "suspectes" ou "à risque" pour l'IA
-        # car on ne peut pas tout envoyer (limite de tokens et coût).
-        
-        # A. On filtre les écritures "à risque" pour l'IA :
-        # - Montants ronds (souvent des estimations ou fraudes)
-        # - Écritures le weekend
-        # - Mots clés suspects dans les libellés
-        # - Opérations Diverses (OD)
-        
-        df['is_round'] = (df['debit'] % 100 == 0) & (df['debit'] > 0)
-        keywords = ['cadeau', 'espece', 'divers', 'regularisation', 'honoraires', 'consulting', 'exceptionnel']
-        df['is_suspect_text'] = df['ecriturelib'].str.contains('|'.join(keywords), case=False, na=False)
-        
-        # On prend un échantillon des 50 lignes les plus "suspectes" pour l'IA
-        risky_lines = df[
-            df['is_round'] | df['is_suspect_text'] | (df['journal_code'] == 'OD')
-        ].sort_values(by='debit', ascending=False).head(40)
-        
-        # Si on n'a pas assez de lignes suspectes, on prend des lignes aléatoires à fort montant
-        if len(risky_lines) < 10:
-            high_value = df.sort_values(by='debit', ascending=False).head(10)
-            risky_lines = pd.concat([risky_lines, high_value]).drop_duplicates()
-
-        # Conversion en texte pour l'IA
-        data_for_ai = risky_lines[[
-            'journal_code', 'ecriture_date', 'compte_num', 
-            'ecriture_lib', 'debit', 'credit'
-        ]].to_json(orient="records")
-
-        # APPEL A CLAUDE
         try:
-            ai_anomalies = self._ask_claude(data_for_ai)
-            anomalies.extend(ai_anomalies)
+            # A. Filtrage des écritures "à risque" pour l'IA
+            df['is_round'] = (df['debit'] % 100 == 0) & (df['debit'] > 0)
+            
+            keywords = ['cadeau', 'espece', 'divers', 'regularisation', 'honoraires', 'consulting', 'exceptionnel']
+            
+            # Utilisation de 'ecriture_lib' (le nom standardisé)
+            df['is_suspect_text'] = df['ecriture_lib'].astype(str).str.contains('|'.join(keywords), case=False, na=False)
+            
+            # Sélection des lignes
+            risky_lines = df[
+                df['is_round'] | df['is_suspect_text'] | (df['journal_code'] == 'OD')
+            ].sort_values(by='debit', ascending=False).head(40)
+            
+            # Fallback si pas assez de lignes
+            if len(risky_lines) < 10:
+                high_value = df.sort_values(by='debit', ascending=False).head(10)
+                risky_lines = pd.concat([risky_lines, high_value]).drop_duplicates()
+
+            # Préparation des données pour Claude
+            # On s'assure de ne prendre que les colonnes qui existent
+            cols_to_keep = ['journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit']
+            final_cols = [c for c in cols_to_keep if c in risky_lines.columns]
+            
+            data_for_ai = risky_lines[final_cols].to_json(orient="records")
+
+            # Appel API
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                ai_anomalies = self._ask_claude(data_for_ai)
+                anomalies.extend(ai_anomalies)
+            else:
+                print("⚠️ Pas de clé API Claude détectée, analyse IA ignorée.")
+
         except Exception as e:
             print(f"Erreur lors de l'appel à Claude AI : {e}")
-            # On ne bloque pas le processus si l'IA échoue
 
         return anomalies
 
@@ -123,18 +108,17 @@ class AuditEngine:
         Si tu ne trouves rien de grave, renvoie une liste vide [].
         """
 
-        message = self.claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=2000,
-            temperature=0,
-            system="Tu es un assistant d'audit comptable rigoureux. Tu ne réponds qu'en JSON.",
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-
-        # Extraction et parsing du JSON de la réponse
         try:
+            message = self.claude_client.messages.create(
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=2000,
+                temperature=0,
+                system="Tu es un assistant d'audit comptable rigoureux. Tu ne réponds qu'en JSON.",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
             raw_content = message.content[0].text
             # Nettoyage au cas où Claude ajouterait du texte autour
             start = raw_content.find('[')
@@ -148,42 +132,56 @@ class AuditEngine:
             print(f"Erreur parsing JSON Claude: {e}")
             return []
 
-    # --- MÉTHODES EXISTANTES (Hard Logic) ---
+    # --- MÉTHODES STATISTIQUES (HARD LOGIC) ---
 
     def _analyse_benford(self, df):
-        # Ta logique existante...
+        # Utilisation de 'debit' qui est standardisé
         df_pos = df[df['debit'] > 0]
         if len(df_pos) < 50: return []
-        first_digits = df_pos['debit'].astype(str).str.extract(r'(\d)')[0].astype(int)
+        
+        # Extraction du premier chiffre
+        first_digits = df_pos['debit'].astype(str).str.lstrip().str[:1]
+        # On s'assure que ce sont des chiffres
+        first_digits = first_digits[first_digits.str.isnumeric()].astype(int)
+        
+        if len(first_digits) == 0: return []
+
         freq_1 = (first_digits == 1).mean()
-        if freq_1 < 0.25 or freq_1 > 0.35:
+        
+        # Loi de Benford : le 1 doit apparaître ~30.1% du temps
+        if freq_1 < 0.20 or freq_1 > 0.40:
             return [{
                 "cycle": "GÉNÉRAL", "type_anomalie": "BENFORD", "niveau_criticite": "ELEVE",
                 "score_ml": 85.0, "montant": 0,
-                "description": f"Loi de Benford non respectée (Freq '1': {round(freq_1*100, 1)}%). Indice potentiel de manipulation."
+                "description": f"Loi de Benford non respectée (Fréquence du chiffre '1': {round(freq_1*100, 1)}% vs 30% attendu). Indice potentiel de manipulation globale."
             }]
         return []
 
     def _analyse_tracfin(self, df):
         alerts = []
-        # Smurfing: entre 9000 et 10000 (juste sous le seuil légal)
+        # Smurfing: entre 9000 et 10000 (juste sous le seuil légal de 10k)
         smurfing = df[(df['debit'] >= 9000) & (df['debit'] < 10000)]
         if len(smurfing) >= 1:
             alerts.append({
                 "cycle": "TRESORERIE", "type_anomalie": "TRACFIN", "niveau_criticite": "CRITIQUE",
                 "score_ml": 95.0, "montant": float(smurfing['debit'].sum()),
-                "description": f"Détection de {len(smurfing)} écritures proches du seuil de déclaration (Smurfing possible)."
+                "description": f"Détection de {len(smurfing)} écritures proches du seuil de déclaration (9k-10k€). Risque de fractionnement (Smurfing)."
             })
         return alerts
 
     def _analyse_comptes_sensibles(self, df):
         res = []
-        # Caisse négative
+        # Caisse négative (Compte 53)
+        # On utilise 'compte_num' qui est standardisé
         if 'compte_num' in df.columns:
             caisse = df[df['compte_num'].astype(str).str.startswith('53')]
-            solde = caisse['debit'].sum() - caisse['credit'].sum()
-            # Note: Normalement on calcule le solde cumulé, ici c'est simplifié
-            if solde < 0: # C'est rare que le total débit < total crédit sur l'année sans anomalie
-                 pass 
-                 # Simplifié pour l'exemple, à affiner avec les A-Nouveaux
+            if not caisse.empty:
+                solde = caisse['debit'].sum() - caisse['credit'].sum()
+                # Un solde de caisse ne peut jamais être créditeur (négatif) physiquement
+                if solde < -50: # On laisse une petite marge d'erreur de saisie
+                     res.append({
+                        "cycle": "TRESORERIE", "type_anomalie": "CAISSE NÉGATIVE", "niveau_criticite": "CRITIQUE",
+                        "score_ml": 100.0, "montant": float(abs(solde)),
+                        "description": f"La caisse est créditrice de {abs(solde)}€. Impossible physiquement (caisse vide = 0)."
+                    })
         return res
