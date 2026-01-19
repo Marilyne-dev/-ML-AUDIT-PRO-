@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import axios from 'axios';
 import { 
-  LayoutDashboard, FileText, AlertTriangle, Upload, BarChart3, 
-  Users, LogOut, PlusCircle, ShieldCheck, Menu, X, Gavel, Scale, Fingerprint, User, Briefcase 
+  LayoutDashboard, FileText, AlertTriangle, Users, LogOut, 
+  PlusCircle, ShieldCheck, Menu, X, Gavel, Scale, Fingerprint, User, Briefcase 
 } from 'lucide-react';
 
-// LIEN DU BACKEND RENDER
-const API_URL = "https://ml-audit-pro.onrender.com";
+// --- DÉTECTION AUTOMATIQUE (LOCAL vs EN LIGNE) ---
+// Si l'adresse dans le navigateur est "localhost", on utilise ton PC.
+// Sinon (c'est Vercel), on utilise le serveur Render.
+const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ? "http://127.0.0.1:8000"                // Version Locale
+  : "https://ml-audit-pro.onrender.com";   // Version En Ligne (Render)
 
 function App() {
   // --- ÉTATS (STATES) ---
@@ -29,7 +33,9 @@ function App() {
   const [anomalies, setAnomalies] = useState([]);
   const [selectedMission, setSelectedMission] = useState(null);
   const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  
+  // Gestion précise du chargement par mission
+  const [uploadingId, setUploadingId] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // --- CONFIGURATION ADMIN ---
@@ -66,10 +72,17 @@ function App() {
     setLoading(true);
     setSelectedMission(mission);
     try {
-      const res = await axios.get(`${API_URL}/anomalies/${mission.id}`);
-      setAnomalies(res.data);
+      // Appel au backend (Local ou Render selon l'environnement)
+      console.log("Appel API vers :", `${API_URL}/anomalies/${mission.id}`);
+      
+      // On tente d'abord Supabase direct pour être sûr de récupérer les données stockées
+      const { data, error } = await supabase.from('anomalies').select('*').eq('mission_id', mission.id);
+      
+      if (error) throw error;
+      setAnomalies(data || []);
       setActiveTab('alerts');
     } catch (e) {
+      console.error(e);
       alert("Erreur lors de la récupération des données.");
     } finally {
       setLoading(false);
@@ -86,15 +99,16 @@ function App() {
     if (error) {
         alert(error.message);
         setLoading(false);
+    } else {
+        setLoading(false);
     }
   };
 
   const createMission = async () => {
     if (!raisonSociale || !ca) return alert("Raison sociale et CA obligatoires.");
     setLoading(true);
-    
     try {
-      // Appel API Backend pour création avec calcul ISA 320
+      console.log("Création mission vers :", API_URL);
       await axios.post(`${API_URL}/missions`, {
         raison_sociale: raisonSociale,
         chiffre_affaires_n: parseFloat(ca),
@@ -102,30 +116,38 @@ function App() {
         total_bilan: parseFloat(bilan || 0),
         client_email: session.user.email
       });
-      
-      alert("Mission d'audit v4.0 initialisée !");
+      alert("Mission créée avec succès !");
       setRaisonSociale(''); setCa(''); setResultat(''); setBilan('');
       fetchMissions();
     } catch (e) {
-      alert("Erreur lors de la création.");
-    } finally {
-      setLoading(false);
+      console.error(e);
+      alert("Erreur création. Si vous êtes en local, vérifiez 'uvicorn'. Si en ligne, vérifiez Render.");
+    } finally { 
+        setLoading(false); 
     }
   };
 
   const handleUpload = async (missionId) => {
-    if (!file) return alert("Sélectionnez un fichier FEC (.csv ou .txt)");
-    setUploading(true);
+    if (!file) return alert("Veuillez d'abord choisir un fichier pour cette mission.");
+    
+    setUploadingId(missionId); 
+    
     const formData = new FormData();
     formData.append('file', file);
+
     try {
+      console.log(`Envoi du fichier vers ${API_URL}/analyze/${missionId}`);
       const res = await axios.post(`${API_URL}/analyze/${missionId}`, formData);
-      alert("Analyse IA terminée : " + res.data.anomalies_detectees + " anomalies trouvées.");
-      fetchMissions();
+      
+      alert(`Expertise IA terminée : ${res.data.anomalies_detectees} anomalies trouvées.`);
+      
+      setFile(null); 
+      fetchMissions(); 
     } catch (e) {
-      alert("Erreur lors de l'analyse IA.");
+      console.error("Erreur détaillée:", e);
+      alert("Erreur lors de l'analyse : " + (e.response?.data?.detail || "Le serveur ne répond pas."));
     } finally {
-      setUploading(false);
+      setUploadingId(null);
     }
   };
 
@@ -140,7 +162,6 @@ function App() {
             <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">RVJ Audit & Expertise - v4.0</p>
           </div>
 
-          {/* ONGLETS LOGIN CLIENT / ADMIN */}
           <div className="flex bg-slate-800 p-1 rounded-2xl mb-6 border border-slate-700">
             <button onClick={() => setIsAdminLoginForm(false)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition ${!isAdminLoginForm ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>
               <User size={18}/> Client
@@ -196,9 +217,6 @@ function App() {
                 <AlertTriangle size={20}/> Détection de Risques
             </button>
           )}
-          <button className="w-full text-left p-4 rounded-2xl flex items-center gap-3 hover:bg-slate-800 text-slate-500 cursor-not-allowed">
-            <FileText size={20}/> Rapports CAC (Word)
-          </button>
         </nav>
 
         <div className="mt-auto pt-6 border-t border-slate-800">
@@ -225,7 +243,6 @@ function App() {
                 <div className="bg-blue-100 text-blue-700 px-4 py-2 rounded-xl text-xs font-black uppercase">Statut : Connecté {userRole}</div>
             </header>
 
-            {/* WIDGETS D'EXPERTISE v4.0 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 mb-12">
                 <div className="bg-[#0f172a] p-8 rounded-[40px] text-white shadow-2xl relative overflow-hidden">
                     <p className="text-blue-400 font-bold text-xs uppercase mb-2">Missions Actives</p>
@@ -249,7 +266,6 @@ function App() {
                 </div>
             </div>
 
-            {/* FORMULAIRE DE CRÉATION (CLIENT) */}
             {userRole === 'client' && (
               <div className="bg-white p-6 sm:p-12 rounded-[50px] shadow-xl border border-slate-100 mb-12">
                 <h3 className="text-2xl font-black mb-8 flex items-center gap-3"><PlusCircle className="text-blue-600"/> Nouvelle Mission d'Audit v4.0</h3>
@@ -279,7 +295,6 @@ function App() {
           </div>
         )}
 
-        {/* LISTE DES MISSIONS */}
         {activeTab === 'missions' && (
           <div className="space-y-6 max-w-5xl mx-auto">
             <h2 className="text-3xl font-black mb-8 italic flex items-center gap-3"><Users className="text-blue-600"/> Portefeuille Actif</h2>
@@ -296,8 +311,12 @@ function App() {
                   {userRole === 'client' && (
                     <div className="flex flex-col gap-2 p-4 bg-slate-50 rounded-3xl border border-slate-200">
                       <input type="file" className="text-[10px]" onChange={(e) => setFile(e.target.files[0])} />
-                      <button disabled={uploading} onClick={() => handleUpload(m.id)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase transition disabled:bg-slate-400">
-                        {uploading ? "ANALYSE EN COURS..." : "UPLOADER LE FEC"}
+                      <button 
+                        disabled={uploadingId === m.id} 
+                        onClick={() => handleUpload(m.id)} 
+                        className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase transition disabled:bg-slate-400"
+                      >
+                        {uploadingId === m.id ? "IA EN COURS..." : "UPLOADER LE FEC"}
                       </button>
                     </div>
                   )}
@@ -312,7 +331,6 @@ function App() {
           </div>
         )}
 
-        {/* ALERTS (DETECTION DE FRAUDE) */}
         {activeTab === 'alerts' && (
           <div className="animate-in fade-in duration-500 max-w-6xl mx-auto">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
