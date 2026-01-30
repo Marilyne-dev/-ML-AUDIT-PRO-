@@ -17,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. Route pour créer une mission (Mise à jour avec Exercice et Download Count)
+# 3. Route pour créer une mission
 @app.post("/missions")
 async def create_mission_v4(data: dict):
     ca = float(data.get('chiffre_affaires_n', 0))
@@ -28,9 +28,19 @@ async def create_mission_v4(data: dict):
     s_signif = max(ca * 0.01, res_net * 0.05, bilan * 0.005)
     if s_signif == 0: s_signif = 1000
 
+    # On récupère l'année en texte
+    annee_txt = data.get('exercice_comptable', '2024')
+    
+    # On essaie de convertir en entier pour l'ancienne colonne
+    try:
+        annee_int = int(annee_txt)
+    except:
+        annee_int = 2024
+
     mission_v4 = {
         "raison_sociale": data.get('raison_sociale'),
-        "exercice_comptable": data.get('exercice_comptable', '2024'), # Ajout de l'année
+        "exercice_comptable": annee_txt,
+        "exercice_n": annee_int,  # CORRECTION ICI : On remplit l'ancienne colonne aussi
         "chiffre_affaires_n": ca,
         "resultat_net_n": res_net,
         "total_bilan": bilan,
@@ -39,11 +49,18 @@ async def create_mission_v4(data: dict):
         "seuil_remontee": round(s_signif * 0.05, 2),
         "client_email": data.get('client_email'),
         "statut": "Initialisée",
-        "download_count": 0  # Initialisation du compteur
+        "download_count": 0
     }
 
-    res = supabase.table("missions").insert(mission_v4).execute()
-    return res.data
+    # Insertion
+    try:
+        res = supabase.table("missions").insert(mission_v4).execute()
+        return res.data
+    except Exception as e:
+        print(f"ERREUR SQL : {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 # 4. Route pour analyser le fichier FEC (Version ROBUSTE + MAPPING)
 @app.post("/analyze/{mission_id}")
@@ -103,6 +120,7 @@ async def analyze_v4(mission_id: str, file: UploadFile = File(...)):
             df[col] = '' if col not in ['debit', 'credit'] else 0
 
     # Initialisation du moteur d'audit
+    # Initialisation du moteur d'audit
     engine = AuditEngine(mission_id)
     
     try:
@@ -113,6 +131,11 @@ async def analyze_v4(mission_id: str, file: UploadFile = File(...)):
             for a in anomalies: 
                 a['mission_id'] = mission_id
             
+            # --- AJOUTER CETTE LIGNE ICI ---
+            # On supprime les anciennes anomalies de cette mission pour éviter les doublons
+            supabase.table("anomalies").delete().eq("mission_id", mission_id).execute()
+            # -------------------------------
+
             # Sauvegarde dans Supabase
             supabase.table("anomalies").insert(anomalies).execute()
             # Mise à jour du statut

@@ -8,180 +8,185 @@ from datetime import datetime
 class AuditEngine:
     def __init__(self, mission_id):
         self.mission_id = mission_id
-        # Initialisation du client Claude
-        # Si la clé n'est pas encore là, on met une valeur bidon pour ne pas faire planter le démarrage
         api_key = os.environ.get("ANTHROPIC_API_KEY", "clé_manquante")
         self.claude_client = anthropic.Anthropic(api_key=api_key)
 
+    def _determiner_cycle(self, compte_num):
+        """Assigne un des 21 cycles d'audit selon le numéro de compte"""
+        c = str(compte_num).strip()
+        
+        if c.startswith('10') or c.startswith('11') or c.startswith('12'): return "CAPITAUX_PROPRES"
+        if c.startswith('15'): return "PROVISIONS"
+        if c.startswith('16'): return "EMPRUNTS"
+        if c.startswith('2'): return "IMMO_CORPORELLES" # Simplification pour MVP
+        if c.startswith('3'): return "STOCKS"
+        if c.startswith('40'): return "FOURNISSEURS"
+        if c.startswith('41'): return "CLIENTS"
+        if c.startswith('42') or c.startswith('43'): return "DETTES_SOCIALES"
+        if c.startswith('44'): return "DETTES_FISCALES"
+        if c.startswith('45') or c.startswith('46'): return "AUTRES_CREANCES_DETTES"
+        if c.startswith('5'): return "TRESORERIE"
+        if c.startswith('60') or c.startswith('61') or c.startswith('62'): return "CHARGES_EXPLOITATION"
+        if c.startswith('64'): return "CHARGES_PERSONNEL"
+        if c.startswith('66'): return "RESULTAT_FINANCIER"
+        if c.startswith('69'): return "IMPOTS"
+        if c.startswith('70'): return "PRODUITS_EXPLOITATION"
+        
+        return "OPERATIONS_DIVERSES" # Par défaut
+
     def executer_analyse_v4(self, df):
-        """
-        Orchestrateur qui combine analyse statistique (Python) 
-        et analyse qualitative (Claude AI)
-        """
         anomalies = []
         
-        # NOTE : df arrive déjà nettoyé par main.py
-        # Les colonnes sont garanties d'être : 'journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit'
-
-        # Conversion numérique de sécurité (au cas où)
-        # On remplace les virgules par des points et on force le type float
+        # Nettoyage et conversion
         for col in ['debit', 'credit']:
             if df[col].dtype == object:
                 df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # --- PHASE 1 : ANALYSE PYTHON (RAPIDE) ---
+        # Ajout de la colonne Cycle pour chaque ligne
+        if 'compte_num' in df.columns:
+            df['cycle_calcule'] = df['compte_num'].apply(self._determiner_cycle)
+        else:
+            df['cycle_calcule'] = "INCONNU"
+
+        # --- PHASE 1 : ANALYSE STATISTIQUE (PYTHON) ---
         try:
             anomalies.extend(self._analyse_benford(df))
             anomalies.extend(self._analyse_tracfin(df))
             anomalies.extend(self._analyse_comptes_sensibles(df))
         except Exception as e:
-            print(f"Erreur lors de l'analyse Python : {e}")
+            print(f"Erreur analyse Python : {e}")
         
-        # --- PHASE 2 : ANALYSE CLAUDE AI (INTELLIGENTE) ---
+        # --- PHASE 2 : ANALYSE EXPERTE (CLAUDE AI) ---
         try:
-            # A. Filtrage des écritures "à risque" pour l'IA
-            df['is_round'] = (df['debit'] % 100 == 0) & (df['debit'] > 0)
+            # On cible les écritures les plus risquées
+            # Critères : Montants ronds, Libellés vagues, OD manuelles, Weekend
+            df['is_round'] = (df['debit'] % 100 == 0) & (df['debit'] > 1000)
+            keywords = ['divers', 'regularisation', 'gift', 'cadeau', 'espece', 'honoraires', 'consulting']
+            df['is_suspect'] = df['ecriture_lib'].astype(str).str.contains('|'.join(keywords), case=False, na=False)
             
-            keywords = ['cadeau', 'espece', 'divers', 'regularisation', 'honoraires', 'consulting', 'exceptionnel']
-            
-            # Utilisation de 'ecriture_lib' (le nom standardisé)
-            df['is_suspect_text'] = df['ecriture_lib'].astype(str).str.contains('|'.join(keywords), case=False, na=False)
-            
-            # Sélection des lignes
+            # On prend les 30 lignes les plus suspectes
             risky_lines = df[
-                df['is_round'] | df['is_suspect_text'] | (df['journal_code'] == 'OD')
-            ].sort_values(by='debit', ascending=False).head(40)
+                df['is_round'] | df['is_suspect'] | (df['journal_code'] == 'OD')
+            ].sort_values(by='debit', ascending=False).head(30)
             
-            # Fallback si pas assez de lignes
-            if len(risky_lines) < 10:
-                high_value = df.sort_values(by='debit', ascending=False).head(10)
-                risky_lines = pd.concat([risky_lines, high_value]).drop_duplicates()
+            if len(risky_lines) < 5:
+                # Si pas assez de suspects, on prend les plus gros montants
+                risky_lines = df.sort_values(by='debit', ascending=False).head(10)
 
-            # Préparation des données pour Claude
-            # On s'assure de ne prendre que les colonnes qui existent
-            cols_to_keep = ['journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit']
-            final_cols = [c for c in cols_to_keep if c in risky_lines.columns]
-            
-            data_for_ai = risky_lines[final_cols].to_json(orient="records")
+            # Préparation des données pour l'IA
+            cols = ['journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit', 'cycle_calcule']
+            final_cols = [c for c in cols if c in risky_lines.columns]
+            data_json = risky_lines[final_cols].to_json(orient="records")
 
-            # Appel API
             if os.environ.get("ANTHROPIC_API_KEY"):
-                ai_anomalies = self._ask_claude(data_for_ai)
+                ai_anomalies = self._ask_claude_expert(data_json)
                 anomalies.extend(ai_anomalies)
-            else:
-                print("⚠️ Pas de clé API Claude détectée, analyse IA ignorée.")
 
         except Exception as e:
-            print(f"Erreur lors de l'appel à Claude AI : {e}")
+            print(f"Erreur IA : {e}")
 
         return anomalies
 
-    def _ask_claude(self, json_data):
-        """Envoie les données à Claude pour une analyse d'audit"""
+    def _ask_claude_expert(self, json_data):
+        """Prompt Expert-Comptable pour Claude"""
         
         prompt = f"""
-        Tu es un Expert-Comptable et Commissaire aux Comptes expérimenté (Audit Légal).
-        Je vais te fournir un extrait de Fichier des Écritures Comptables (FEC) au format JSON.
+        AGIS COMME UN COMMISSAIRE AUX COMPTES SENIOR (AUDITEUR LÉGAL).
         
-        Ta mission est d'analyser ces lignes pour détecter des anomalies potentielles :
-        1. Fraude potentielle (écritures injustifiées, libellés vagues).
-        2. Problèmes de Cut-off (mauvaise période).
-        3. Anomalies fiscales (TVA, dépenses somptuaires).
-        4. Risques de blanchiment.
+        Tu dois analyser ces écritures comptables (FEC) et identifier les fraudes ou erreurs graves.
+        
+        RÈGLES D'ANALYSE STRICTES :
+        1. Utilise UNIQUEMENT les cycles d'audit standards (CLIENTS, FOURNISSEURS, TRESORERIE, IMMO, PERSONNEL, CAPITAUX, OD).
+        2. Tes descriptions doivent être techniques et détaillées (mentionne le risque fiscal ou comptable).
+        3. Détecte : les écritures sans justification claire, les doublons potentiels, les problèmes de TVA, les charges fictives.
 
-        Voici les données :
+        DONNÉES À ANALYSER :
         {json_data}
 
-        Réponds UNIQUEMENT avec un JSON valide respectant strictement ce format (sans texte avant ni après) :
+        FORMAT DE RÉPONSE ATTENDU (JSON UNIQUEMENT) :
         [
             {{
-                "cycle": "ACHATS" ou "VENTES" ou "TRESORERIE" ou "OD",
-                "type_anomalie": "FRAUDE" ou "ERREUR" ou "FISCAL",
-                "niveau_criticite": "CRITIQUE" ou "ELEVE" ou "MODERE",
-                "score_ml": (un nombre entre 50 et 100 indiquant ta certitude),
-                "montant": (le montant concerné si applicable, sinon 0),
-                "description": "Explication courte et professionnelle de l'anomalie pour l'auditeur."
+                "cycle": "NOM_DU_CYCLE (ex: FOURNISSEURS)",
+                "type_anomalie": "FRAUDE / ERREUR / FISCAL / CUT-OFF",
+                "niveau_criticite": "CRITIQUE (si >10k€ ou fraude) ou ELEVE",
+                "score_ml": 95,
+                "montant": 12500.00,
+                "description": "DESCRIPTION DÉTAILLÉE : Explique pourquoi c'est suspect. Ex: 'Écriture d'OD sans tiers au crédit du compte 401, montant rond atypique, risque de dissimulation de charges.'"
             }}
         ]
         
-        Si tu ne trouves rien de grave, renvoie une liste vide [].
+        Si rien de grave, renvoie []. Ne sois pas trop sensible, cherche les vrais problèmes.
         """
 
         try:
             message = self.claude_client.messages.create(
                 model="claude-3-5-sonnet-20240620",
-                max_tokens=2000,
+                max_tokens=2500,
                 temperature=0,
-                system="Tu es un assistant d'audit comptable rigoureux. Tu ne réponds qu'en JSON.",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
-
-            raw_content = message.content[0].text
-            # Nettoyage au cas où Claude ajouterait du texte autour
-            start = raw_content.find('[')
-            end = raw_content.rfind(']') + 1
-            if start != -1 and end != -1:
-                json_str = raw_content[start:end]
-                return json.loads(json_str)
-            else:
-                return []
-        except Exception as e:
-            print(f"Erreur parsing JSON Claude: {e}")
+            
+            # Extraction propre du JSON
+            content = message.content[0].text
+            start = content.find('[')
+            end = content.rfind(']') + 1
+            return json.loads(content[start:end])
+        except:
             return []
 
-    # --- MÉTHODES STATISTIQUES (HARD LOGIC) ---
+    # --- MÉTHODES PYTHON ---
 
     def _analyse_benford(self, df):
-        # Utilisation de 'debit' qui est standardisé
-        df_pos = df[df['debit'] > 0]
-        if len(df_pos) < 50: return []
+        # Benford s'applique surtout aux charges et produits externes
+        target_df = df[df['compte_num'].astype(str).str.startswith(('6', '7'))]
+        if len(target_df) < 50: return []
         
-        # Extraction du premier chiffre
-        first_digits = df_pos['debit'].astype(str).str.lstrip().str[:1]
-        # On s'assure que ce sont des chiffres
+        first_digits = target_df['debit'].astype(str).str[:1]
         first_digits = first_digits[first_digits.str.isnumeric()].astype(int)
-        
-        if len(first_digits) == 0: return []
-
         freq_1 = (first_digits == 1).mean()
         
-        # Loi de Benford : le 1 doit apparaître ~30.1% du temps
         if freq_1 < 0.20 or freq_1 > 0.40:
             return [{
-                "cycle": "GÉNÉRAL", "type_anomalie": "BENFORD", "niveau_criticite": "ELEVE",
-                "score_ml": 85.0, "montant": 0,
-                "description": f"Loi de Benford non respectée (Fréquence du chiffre '1': {round(freq_1*100, 1)}% vs 30% attendu). Indice potentiel de manipulation globale."
+                "cycle": "CHARGES_EXPLOITATION", # On attribue au cycle Charges par défaut
+                "type_anomalie": "STATISTIQUE (BENFORD)",
+                "niveau_criticite": "ELEVE",
+                "score_ml": 85.0, 
+                "montant": 0,
+                "description": f"Anomalie statistique globale sur le cycle Charges. La fréquence du chiffre '1' est de {round(freq_1*100, 1)}% (Norme: ~30%). Indice de manipulation possible des factures."
             }]
         return []
 
     def _analyse_tracfin(self, df):
         alerts = []
-        # Smurfing: entre 9000 et 10000 (juste sous le seuil légal de 10k)
-        smurfing = df[(df['debit'] >= 9000) & (df['debit'] < 10000)]
+        # Smurfing sur comptes de trésorerie (Classe 5)
+        treso = df[df['compte_num'].astype(str).str.startswith('5')]
+        smurfing = treso[(treso['debit'] >= 9000) & (treso['debit'] < 10000)]
+        
         if len(smurfing) >= 1:
             alerts.append({
-                "cycle": "TRESORERIE", "type_anomalie": "TRACFIN", "niveau_criticite": "CRITIQUE",
-                "score_ml": 95.0, "montant": float(smurfing['debit'].sum()),
-                "description": f"Détection de {len(smurfing)} écritures proches du seuil de déclaration (9k-10k€). Risque de fractionnement (Smurfing)."
+                "cycle": "TRESORERIE", # Cycle Trésorerie
+                "type_anomalie": "BLANCHIMENT (TRACFIN)",
+                "niveau_criticite": "CRITIQUE",
+                "score_ml": 98.0, 
+                "montant": float(smurfing['debit'].sum()),
+                "description": f"ALERTE LÉGALE : {len(smurfing)} mouvements de trésorerie identifiés juste en dessous du seuil de déclaration (9k€-10k€). Risque élevé de fractionnement (Smurfing)."
             })
         return alerts
 
     def _analyse_comptes_sensibles(self, df):
         res = []
-        # Caisse négative (Compte 53)
-        # On utilise 'compte_num' qui est standardisé
+        # Caisse négative
         if 'compte_num' in df.columns:
             caisse = df[df['compte_num'].astype(str).str.startswith('53')]
-            if not caisse.empty:
-                solde = caisse['debit'].sum() - caisse['credit'].sum()
-                # Un solde de caisse ne peut jamais être créditeur (négatif) physiquement
-                if solde < -50: # On laisse une petite marge d'erreur de saisie
-                     res.append({
-                        "cycle": "TRESORERIE", "type_anomalie": "CAISSE NÉGATIVE", "niveau_criticite": "CRITIQUE",
-                        "score_ml": 100.0, "montant": float(abs(solde)),
-                        "description": f"La caisse est créditrice de {abs(solde)}€. Impossible physiquement (caisse vide = 0)."
-                    })
+            solde = caisse['debit'].sum() - caisse['credit'].sum()
+            if solde < -10:
+                 res.append({
+                    "cycle": "TRESORERIE",
+                    "type_anomalie": "COHÉRENCE COMPTABLE",
+                    "niveau_criticite": "CRITIQUE",
+                    "score_ml": 100.0, 
+                    "montant": float(abs(solde)),
+                    "description": f"Solde de caisse créditeur (négatif) de {abs(solde)} €. C'est une impossibilité physique indiquant souvent des recettes non déclarées ou des sorties d'espèces injustifiées."
+                })
         return res
