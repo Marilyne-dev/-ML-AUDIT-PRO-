@@ -9,6 +9,13 @@ import xlsxwriter
 from dotenv import load_dotenv
 load_dotenv() # Charge les variables du fichier .env
 import os
+from ml_engine import ask_claude_general
+from fastapi import Request 
+from pydantic import BaseModel
+import asyncio
+
+
+
 # 1. Initialisation de l'application
 app = FastAPI()
 
@@ -183,29 +190,75 @@ async def track_download(mission_id: str):
         return {"success": False, "error": str(e)}
     
 
+
 # 6. Route pour le Chatbot Audit
-@app.post("/chat/{mission_id}")
-async def chat_audit(mission_id: str, payload: dict):
-    question = payload.get("question")
+# --------------------------
+# --------------------------
+class QuestionRequest(BaseModel):
+    question: str
 
-    try:
-        # 1. Récupérer anomalies
-        response = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
-        anomalies = response.data if response.data else []
+# --------------------------
+# 3. Route général (sans contexte)
+# --------------------------
+@app.post("/chat/{session_id}")
+async def chat(session_id: str, req: QuestionRequest):
+    # Récupération anomalies dans un thread pour ne pas bloquer
+    anomalies_resp = await asyncio.to_thread(
+        lambda: supabase.table("anomalies").select("*").eq("mission_id", session_id).execute()
+    )
+    anomalies = anomalies_resp.data or []
 
-        # 2. Appeler IA
-        engine = AuditEngine(mission_id)
-        reponse_ia = engine.ask_audit_assistant(question, anomalies)
+    # Construction du prompt
+    if anomalies:
+        contexte = "Voici les anomalies détectées :\n" + "\n".join([f"- {a.get('description')}" for a in anomalies])
+        prompt = f"Tu es un assistant IA spécialisé en audit. {contexte}\nQuestion : {req.question}"
+    else:
+        prompt = req.question
 
-        # Sécurité si IA renvoie vide
-        if not reponse_ia:
-            return {"reponse": "⚠️ L'IA n'a pas répondu."}
-
-        return {"reponse": reponse_ia}
-
-    except Exception as e:
-        print("ERREUR CHAT IA :", e)
-        return {"reponse": "⚠️ Erreur interne de l'IA. Réessayez."}
+    # Appel IA
+    engine = AuditEngine(mission_id=session_id)
+    reponse = await ask_claude_general(prompt, engine.api_key)
+    return {"reponse": reponse}
 
 
+# --------------------------
+# 4. Route contexte (anomalies)
+# --------------------------
+@app.post("/chat-context/{session_id}")
+async def chat_context(session_id: str, req: QuestionRequest):
+    """
+    Pose une question à l'IA avec le contexte des anomalies de la mission
+    """
+    # 1. Récupération des anomalies de la mission depuis Supabase
+    anomalies_resp = supabase.table("anomalies").select("*").eq("mission_id", session_id).execute()
+    anomalies = anomalies_resp.data or []
+
+    # 2. Construction du contexte
+    contexte = f"Voici les anomalies détectées pour la mission {session_id}:\n"
+    if anomalies:
+        for a in anomalies:
+            contexte += f"- {a.get('description', 'Aucune description')}\n"
+    else:
+        contexte += "- Aucune anomalie détectée.\n"
+
+    # 3. Préparation du prompt
+    prompt = f"""
+Tu es un assistant IA spécialisé en audit. Voici le contexte de la mission :
+{contexte}
+
+Réponds de manière claire et précise à la question suivante :
+Question : {req.question}
+"""
+
+    # 4. Appel à l'IA
+    engine = AuditEngine(mission_id=session_id)
+    reponse = await ask_claude_general(prompt, engine.api_key)
+    return {"reponse": reponse}
+
+# --------------------------
+# 5. Exemple d'endpoint pour test rapide
+# --------------------------
+@app.get("/")
+def root():
+    return {"message": "API Audit prête ! Utilisez /chat-general/<session_id> ou /chat-context/<session_id>"}
 

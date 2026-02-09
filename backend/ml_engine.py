@@ -7,6 +7,7 @@ from datetime import datetime
 import fitz  
 import openpyxl
 from io import BytesIO
+import asyncio
 
 class AuditEngine:
     def __init__(self, mission_id):
@@ -253,23 +254,32 @@ class AuditEngine:
         if not question:
             return "Veuillez poser une question."
 
+        q = question.lower().strip()
+
+        # 1️⃣ Salutations / phrases générales
+        mots_salutation = ["bonjour", "salut", "coucou", "hello"]
+        phrases_generales = ["comment ça va", "ça va", "merci", "ok", "bien", "comment fais", "régime"]
+
+        if any(word in q for word in mots_salutation):
+            return "Bonjour ! Je suis votre assistant audit. Posez-moi une question sur les anomalies détectées."
+
+        if any(phrase in q for phrase in phrases_generales):
+            return "Je peux répondre aux questions sur les anomalies détectées dans vos missions."
+
+        # 2️⃣ Aucune anomalie
         if not anomalies or len(anomalies) == 0:
             return "Aucune anomalie n'a été détectée pour cette mission."
 
-        q = question.lower()
-
-        # 🔎 Nombre d'anomalies
+        # 3️⃣ Questions spécifiques sur les anomalies
         if "combien" in q and "anomal" in q:
             return f"{len(anomalies)} anomalies ont été détectées dans cette mission."
 
-        # ⚠️ Anomalie la plus critique
         if "plus critique" in q:
             critiques = [a for a in anomalies if a.get("niveau_criticite") == "CRITIQUE"]
             if critiques:
                 return f"L'anomalie la plus critique est : {critiques[0].get('description')}"
             return "Aucune anomalie critique détectée."
 
-        # 📊 Résumé
         if "résumé" in q or "resume" in q:
             critiques = len([a for a in anomalies if a.get("niveau_criticite") == "CRITIQUE"])
             eleve = len([a for a in anomalies if a.get("niveau_criticite") == "ÉLEVÉ"])
@@ -284,12 +294,58 @@ class AuditEngine:
                 f"- Faibles : {faible}"
             )
 
-        # 🎯 Conseil
+        # 4️⃣ Conseil
         if "priorité" in q or "corriger" in q:
             critiques = [a for a in anomalies if a.get("niveau_criticite") == "CRITIQUE"]
             if critiques:
                 return "Vous devez corriger en priorité les anomalies CRITIQUES."
             return "Aucune anomalie critique. Vérifiez les anomalies élevées."
 
-        # 🧠 Réponse par défaut
-        return f"Il y a {len(anomalies)} anomalies détectées. Posez une question plus précise."
+        # 5️⃣ Réponse par défaut si question sur anomalies mais pas reconnue
+        return "Je vous écoute, pouvez-vous préciser votre question concernant l'audit ?"
+
+
+
+async def ask_claude_general(question, api_key):
+    if not api_key:
+        return "⚠️ Clé API manquante pour Claude."
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    prompt = f"""
+Tu es un assistant IA généraliste. Réponds de manière naturelle et claire à la question suivante :
+Question : {question}
+"""
+
+    try:
+        # Appel Claude (async) sans get_event_loop
+        response = await asyncio.to_thread(
+            lambda: client.messages.create(
+                model="claude-3-haiku-20240307",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.7
+            )
+        )
+
+        return response.content[0].text
+
+    except Exception as e:
+        return f"⚠️ Erreur Claude : {str(e)}"
+
+
+
+# ... toutes tes classes et fonctions ici ...
+
+# Test de Claude
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        api_key = os.environ.get("ANTHROPIC_API_KEY")  # ou ta clé directement
+        question = "Quel est le rôle d'un audit comptable ?"
+
+        reponse = await ask_claude_general(question, api_key)
+        print("Claude dit :", reponse)
+
+    asyncio.run(main())
