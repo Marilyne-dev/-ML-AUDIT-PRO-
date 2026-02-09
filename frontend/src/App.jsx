@@ -12,6 +12,7 @@ import {
 import { MENU_STRUCTURE } from './menuConfig';
 import ConfigurationView from './ConfigurationView';
 import HelpView from './HelpView';
+import ChatBot from './ChatBot';
 
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
   ? "http://127.0.0.1:8000"
@@ -20,6 +21,7 @@ const API_URL = (window.location.hostname === "localhost" || window.location.hos
 // ============================================================================
 // COMPOSANTS (VUES EXISTANTES)
 // ============================================================================
+
 
 const DashboardView = ({ missions }) => (
   <div className="max-w-5xl mx-auto animate-in fade-in zoom-in duration-300">
@@ -70,36 +72,91 @@ const NewMissionView = ({ onCreate, loading }) => {
     );
 };
 
-const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) => (
-  <div className="space-y-4 max-w-5xl mx-auto">
-    <h2 className="text-2xl font-black mb-6 italic flex items-center gap-3"><Folder className="text-blue-600"/> Portefeuille Missions</h2>
-    {missions.map(m => (
-      <div key={m.id} className="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between md:items-center gap-4 hover:shadow-md transition">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-              <h4 className="font-bold text-lg text-slate-900">{m.raison_sociale}</h4>
-              <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold">{m.exercice_comptable}</span>
-          </div>
-          <div className="flex gap-2">
-            {m.statut === 'Analysée' 
-                ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded flex items-center gap-1"><CheckCircle size={10}/> Analysé</span> 
-                : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">En attente</span>
-            }
-          </div>
-        </div>
-        <div className="flex gap-2">
-          {m.statut === 'Analysée' ? (
-              <button onClick={() => onSelectMission(m)} className="bg-slate-900 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition">RÉSULTATS</button>
-          ) : (
-            <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
-                <input type="file" className="text-[10px] w-32" onChange={(e) => onUpload(m, e.target.files[0])} />
+    const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) => {
+    // State pour stocker les fichiers sélectionnés par mission
+    const [selectedFilesByMission, setSelectedFilesByMission] = useState({});
+
+    return (
+        <div className="space-y-4 max-w-5xl mx-auto">
+        <h2 className="text-2xl font-black mb-6 italic flex items-center gap-3">
+            <Folder className="text-blue-600" /> Portefeuille Missions
+        </h2>
+
+        {missions.map(m => {
+            const files = selectedFilesByMission[m.id] || [];
+            return (
+            <div
+                key={m.id}
+                className="bg-white p-6 rounded-[20px] shadow-sm border flex flex-col md:flex-row justify-between md:items-center gap-4 hover:shadow-md transition"
+            >
+                {/* Infos mission */}
+                <div>
+                <div className="flex items-center gap-2 mb-1">
+                    <h4 className="font-bold text-lg text-slate-900">{m.raison_sociale}</h4>
+                    <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold">{m.exercice_comptable}</span>
+                </div>
+                <div className="flex gap-2">
+                    {m.statut === 'Analysée' ? (
+                    <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded flex items-center gap-1">
+                        <CheckCircle size={10} /> Analysé
+                    </span>
+                    ) : (
+                    <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                        En attente
+                    </span>
+                    )}
+                </div>
+                </div>
+
+                {/* Actions mission */}
+                <div className="flex gap-2 items-center">
+                {m.statut === 'Analysée' ? (
+                    <button
+                    onClick={() => onSelectMission(m)}
+                    className="bg-slate-900 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition"
+                    >
+                    RÉSULTATS
+                    </button>
+                ) : (
+                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border">
+                    <input
+                        type="file"
+                        multiple
+                        className="text-[10px] w-32"
+                        onChange={(e) =>
+                        setSelectedFilesByMission((prev) => ({
+                            ...prev,
+                            [m.id]: Array.from(e.target.files),
+                        }))
+                        }
+                    />
+                    <button
+                        onClick={() => {
+                        if (!files || files.length === 0) {
+                            alert('Aucun fichier sélectionné.');
+                            return;
+                        }
+                        onUpload(m, files);
+                        }}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold"
+                    >
+                        Analyser
+                    </button>
+                    {files.length > 0 && (
+                        <span className="text-[10px] text-slate-700 font-bold ml-2">
+                        {files.length} fichier{files.length > 1 ? 's' : ''} sélectionné{files.length > 1 ? 's' : ''}
+                        </span>
+                    )}
+                    </div>
+                )}
+                </div>
             </div>
-          )}
+            );
+        })}
         </div>
-      </div>
-    ))}
-  </div>
-);
+    );
+    };
+
 
 const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) => {
     const filteredAnomalies = anomalies.filter(a => {
@@ -199,6 +256,7 @@ function App() {
   const [anomalies, setAnomalies] = useState([]);
   const [selectedMission, setSelectedMission] = useState(null);
   const [uploadingId, setUploadingId] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
 
@@ -238,17 +296,35 @@ function App() {
     } catch (e) { alert("Erreur création."); } finally { setLoading(false); }
   };
 
-  const handleUpload = async (mission, file) => {
-    if (!file) return;
-    setUploadingId(mission.id); 
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      await axios.post(`${API_URL}/analyze/${mission.id}`, formData);
-      await fetchMissions();
-      fetchAnomalies(mission);
-    } catch (e) { alert("Erreur analyse"); } finally { setUploadingId(null); }
-  };
+    const handleUpload = async (mission, files) => {
+        if (!files || files.length === 0) return alert("Aucun fichier sélectionné.");
+        
+        setUploadingId(mission.id); 
+        const formData = new FormData();
+        
+        // On ajoute tous les fichiers sélectionnés à la requête
+        for (let i = 0; i < files.length; i++) {
+            formData.append('files', files[i]); // Note le 's' à 'files'
+        }
+
+        try {
+        // Le backend va traiter la liste
+        await axios.post(`${API_URL}/analyze/${mission.id}`, formData);
+        await fetchMissions();
+        fetchAnomalies(mission);
+        } catch (e) { 
+        console.error("Erreur complète Axios :", e);
+        if (e.response) {
+            console.error("Données du backend :", e.response.data);
+            alert("Erreur analyse : " + JSON.stringify(e.response.data, null, 2));
+        } else {
+            alert("Erreur analyse : " + e.message);
+        }
+    }finally { 
+            setUploadingId(null); 
+        }
+    };
+
 
   const fetchAnomalies = async (mission) => {
     setLoading(true);
@@ -414,6 +490,11 @@ function App() {
         {view === 'SOON' && <ComingSoon />}
 
       </div>
+
+        {/* NOUVEAU : ChatBot accessible depuis toutes les vues */}
+          {selectedMission && <ChatBot missionId={selectedMission.id} />}
+
+      
     </div>
   );
 }
