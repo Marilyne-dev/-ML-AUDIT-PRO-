@@ -11,3 +11,4 @@ anthropic
 openpyxl
 pypdf
 PyMuPDF
+XlsxWriter
