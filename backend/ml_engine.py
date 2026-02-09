@@ -4,6 +4,9 @@ import os
 import json
 import anthropic
 from datetime import datetime
+import fitz  
+import openpyxl
+from io import BytesIO
 
 class AuditEngine:
     def __init__(self, mission_id):
@@ -16,6 +19,34 @@ class AuditEngine:
         else:
             self.claude_client = None
             print("⚠️ ATTENTION: Clé API Anthropic manquante !")
+
+
+    def lire_fichier_universel(self, contents, filename):
+        
+        try:
+            if filename.endswith('.pdf'):
+                doc = fitz.open(stream=contents, filetype="pdf")
+                texte = ""
+                for page in doc:
+                    texte += page.get_text()
+                return texte
+
+            elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+                wb = openpyxl.load_workbook(filename=BytesIO(contents), data_only=True)
+                texte = ""
+                for sheet in wb.sheetnames:
+                    ws = wb[sheet]
+                    for row in ws.iter_rows(values_only=True):
+                        texte += " ".join([str(c) for c in row if c is not None]) + "\n"
+                return texte
+
+            else:
+                # TXT ou CSV
+                return contents.decode("utf-8", errors="ignore")
+
+        except Exception as e:
+            return f"ERREUR: {str(e)}"
+
 
 
     def _determiner_cycle(self, compte_num):
@@ -91,6 +122,46 @@ class AuditEngine:
             print(f"Erreur IA : {e}")
 
         return anomalies
+
+
+
+    def analyser_document_pdf_excel(self, texte):
+        """
+        Analyse simple d'un document PDF ou Excel.
+        Cherche des mots clés suspects et renvoie des anomalies.
+        """
+        anomalies = []
+
+        if not texte.strip():
+            return anomalies
+
+        # Liste de mots-clés suspects
+        keywords = ['divers', 'regularisation', 'cadeau', 'honoraires', 'consulting', 'espece', 'gift']
+        for kw in keywords:
+            if kw.lower() in texte.lower():
+                anomalies.append({
+                    "cycle": "DOCUMENT",
+                    "type_anomalie": "CONTENU SUSPICIEUX",
+                    "niveau_criticite": "FAIBLE",
+                    "score_ml": 50,
+                    "montant": 0,
+                    "description": f"Mot clé suspect détecté : {kw}"
+                })
+
+        if not anomalies:
+            anomalies.append({
+                "cycle": "DOCUMENT",
+                "type_anomalie": "CONTENU",
+                "niveau_criticite": "FAIBLE",
+                "score_ml": 10,
+                "montant": 0,
+                "description": f"Document analysé, {len(texte)} caractères détectés."
+            })
+
+        return anomalies
+
+
+
 
     def _ask_claude_expert(self, json_data):
         """Prompt Expert-Comptable pour Claude"""
