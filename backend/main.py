@@ -2,9 +2,13 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from ml_engine import AuditEngine
+from typing import List
 import pandas as pd
 import io
-
+import xlsxwriter
+from dotenv import load_dotenv
+load_dotenv() # Charge les variables du fichier .env
+import os
 # 1. Initialisation de l'application
 app = FastAPI()
 
@@ -62,90 +66,97 @@ async def create_mission_v4(data: dict):
     
 
 
-# 4. Route pour analyser le fichier FEC (Version ROBUSTE + MAPPING)
+
+# 4. Route pour analyser TOUS types de fichiers (FEC, Excel, PDF)
+from typing import List # Ajoute cet import en haut si pas déjà là
+
+# ... le reste du code ...
+
+# 4. Route MULTI-FICHIERS (FEC, PDF, Excel)
 @app.post("/analyze/{mission_id}")
-async def analyze_v4(mission_id: str, file: UploadFile = File(...)):
-    contents = await file.read()
-    df = None
-
-    # Liste des séparateurs et encodages à tester
-    separators = ['\t', ';', '|', ',']
-    encodings = ['utf-8', 'latin1', 'cp1252']
-
-    # Tentative de lecture robuste (Test de toutes les combinaisons)
-    for encoding in encodings:
-        for sep in separators:
-            try:
-                temp_df = pd.read_csv(
-                    io.BytesIO(contents), 
-                    sep=sep, 
-                    encoding=encoding, 
-                    dtype=str,
-                    on_bad_lines='skip'
-                )
-                if temp_df.shape[1] > 1:
-                    df = temp_df
-                    print(f"✅ Fichier lu avec succès : {encoding} / '{sep}'")
-                    break
-            except Exception:
-                continue
-        if df is not None:
-            break
-
-    if df is None or df.empty or df.shape[1] < 2:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier (Format inconnu). Vérifiez qu'il s'agit d'un CSV ou TXT valide.")
-
-    # --- CORRECTION CRUCIALE DES NOMS DE COLONNES ---
-    # 1. On met tout en minuscule et on enlève les espaces
-    df.columns = [c.strip().lower() for c in df.columns]
-
-    # 2. Dictionnaire de mappage pour forcer les bons noms
-    column_mapping = {
-        'journalcode': 'journal_code', 'codejournal': 'journal_code', 'journal': 'journal_code', 'jnl': 'journal_code',
-        'ecriturenum': 'ecriture_num', 'numecriture': 'ecriture_num',
-        'ecrituredate': 'ecriture_date', 'dateecriture': 'ecriture_date', 'date': 'ecriture_date',
-        'comptenum': 'compte_num', 'numcompte': 'compte_num', 'compte': 'compte_num',
-        'ecriturelib': 'ecriture_lib', 'libelleecriture': 'ecriture_lib', 'libelle': 'ecriture_lib', 'lib': 'ecriture_lib',
-        'debit': 'debit', 'credit': 'credit'
-    }
-
-    # On applique le renommage
-    df.rename(columns=column_mapping, inplace=True)
-
-    # 3. Vérification ultime : si une colonne manque, on la crée vide pour éviter le crash
-    required_columns = ['journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit']
-    for col in required_columns:
-        if col not in df.columns:
-            print(f"⚠️ Colonne manquante : {col} -> Création d'une colonne vide.")
-            df[col] = '' if col not in ['debit', 'credit'] else 0
-
-    # Initialisation du moteur d'audit
-    # Initialisation du moteur d'audit
-    engine = AuditEngine(mission_id)
+async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
     
-    try:
-        # Lancement de l'analyse
-        anomalies = engine.executer_analyse_v4(df)
+    # On nettoie les anciennes anomalies pour cette mission avant de commencer
+    # (Sauf si tu veux garder l'historique, mais pour l'instant on remplace)
+    supabase.table("anomalies").delete().eq("mission_id", mission_id).execute()
+    
+    engine = AuditEngine(mission_id)
+    total_anomalies = []
+
+    # BOUCLE SUR CHAQUE FICHIER UPLOADÉ
+    for file in files:
+        contents = await file.read()
+        filename = file.filename.lower()
+        print(f"📂 Analyse du fichier : {filename}")
         
-        if anomalies:
-            for a in anomalies: 
-                a['mission_id'] = mission_id
+        file_anomalies = []
+
+        # A. CAS PDF / EXCEL (DOCUMENTAIRE)
+        if filename.endswith('.pdf') or filename.endswith('.xlsx') or filename.endswith('.xls'):
+            try:
+                # Si c'est un Excel qui ressemble à un FEC, on pourrait le traiter comme un FEC
+                # Mais pour l'instant, on traite Excel comme un document à lire par l'IA
+                texte_extrait = engine.lire_fichier_universel(contents, filename)
+                
+                if "ERREUR" in texte_extrait:
+                    file_anomalies = [{
+                        "cycle": "IMPORT", "type_anomalie": "ERREUR LECTURE",
+                        "niveau_criticite": "FAIBLE", "score_ml": 0, "montant": 0,
+                        "description": f"[{filename}] {texte_extrait}"
+                    }]
+                else:
+                    file_anomalies = engine.analyser_document_pdf_excel(texte_extrait)
+
+            except Exception as e:
+                print(f"Erreur sur {filename}: {e}")
+
+        # B. CAS FEC (.txt, .csv)
+        else:
+            df = None
+            separators = ['\t', ';', '|', ',']
+            encodings = ['utf-8', 'latin1', 'cp1252']
+
+            for encoding in encodings:
+                for sep in separators:
+                    try:
+                        temp_df = pd.read_csv(io.BytesIO(contents), sep=sep, encoding=encoding, dtype=str, on_bad_lines='skip')
+                        if temp_df.shape[1] > 1:
+                            df = temp_df
+                            break
+                    except: continue
+                if df is not None: break
+
+            if df is not None:
+                # Nettoyage
+                df.columns = [c.strip().lower() for c in df.columns]
+                mapping = {
+                    'journalcode': 'journal_code', 'ecriturenum': 'ecriture_num',
+                    'ecrituredate': 'ecriture_date', 'comptenum': 'compte_num',
+                    'ecriturelib': 'ecriture_lib', 'debit': 'debit', 'credit': 'credit'
+                }
+                df.rename(columns=mapping, inplace=True)
+                file_anomalies = engine.executer_analyse_v4(df)
+
+        # C. MARQUAGE DES ANOMALIES AVEC LE NOM DU FICHIER
+        # Pour savoir dans le rapport de quel fichier ça vient
+        for anom in file_anomalies:
+            anom['mission_id'] = mission_id
+            # On ajoute le nom du fichier au début de la description
+            anom['description'] = f"📄 [{file.filename}] {anom.get('description', '')}"
+            total_anomalies.append(anom)
+
+    # 3. SAUVEGARDE EN BASE (Une seule fois pour tout le lot)
+    if total_anomalies:
+        # On insère par paquets de 100 pour éviter de bloquer si y'en a trop
+        batch_size = 100
+        for i in range(0, len(total_anomalies), batch_size):
+            batch = total_anomalies[i:i + batch_size]
+            supabase.table("anomalies").insert(batch).execute()
             
-            # --- AJOUTER CETTE LIGNE ICI ---
-            # On supprime les anciennes anomalies de cette mission pour éviter les doublons
-            supabase.table("anomalies").delete().eq("mission_id", mission_id).execute()
-            # -------------------------------
+        supabase.table("missions").update({"statut": "Analysée"}).eq("id", mission_id).execute()
 
-            # Sauvegarde dans Supabase
-            supabase.table("anomalies").insert(anomalies).execute()
-            # Mise à jour du statut
-            supabase.table("missions").update({"statut": "Analysée"}).eq("id", mission_id).execute()
+    return {"anomalies_detectees": len(total_anomalies)}
 
-        return {"anomalies_detectees": len(anomalies)}
-
-    except Exception as e:
-        print(f"ERREUR MOTEUR : {e}")
-        raise HTTPException(status_code=500, detail=f"Erreur interne lors de l'analyse : {str(e)}")
 
 # 5. Route pour compter les téléchargements (Traçabilité)
 @app.post("/track-download/{mission_id}")
@@ -170,3 +181,31 @@ async def track_download(mission_id: str):
     except Exception as e:
         print(f"Erreur tracking: {e}")
         return {"success": False, "error": str(e)}
+    
+
+# 6. Route pour le Chatbot Audit
+@app.post("/chat/{mission_id}")
+async def chat_audit(mission_id: str, payload: dict):
+    question = payload.get("question")
+
+    try:
+        # 1. Récupérer anomalies
+        response = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
+        anomalies = response.data if response.data else []
+
+        # 2. Appeler IA
+        engine = AuditEngine(mission_id)
+        reponse_ia = engine.ask_audit_assistant(question, anomalies)
+
+        # Sécurité si IA renvoie vide
+        if not reponse_ia:
+            return {"reponse": "⚠️ L'IA n'a pas répondu."}
+
+        return {"reponse": reponse_ia}
+
+    except Exception as e:
+        print("ERREUR CHAT IA :", e)
+        return {"reponse": "⚠️ Erreur interne de l'IA. Réessayez."}
+
+
+

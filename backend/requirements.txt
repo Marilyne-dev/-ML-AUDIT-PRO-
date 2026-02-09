@@ -8,3 +8,5 @@ python-dotenv
 openpyxl
 python-multipart
 anthropic
+openpyxl
+pypdf
