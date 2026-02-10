@@ -202,22 +202,66 @@ class QuestionRequest(BaseModel):
 # --------------------------
 @app.post("/chat/{session_id}")
 async def chat(session_id: str, req: QuestionRequest):
-    # Récupération anomalies dans un thread pour ne pas bloquer
-    anomalies_resp = await asyncio.to_thread(
-        lambda: supabase.table("anomalies").select("*").eq("mission_id", session_id).execute()
-    )
-    anomalies = anomalies_resp.data or []
 
-    # Construction du prompt
-    if anomalies:
-        contexte = "Voici les anomalies détectées :\n" + "\n".join([f"- {a.get('description')}" for a in anomalies])
-        prompt = f"Tu es un assistant IA spécialisé en audit. {contexte}\nQuestion : {req.question}"
+    question = req.question.lower().strip()
+
+    # -------------------------
+    # 1. Messages généraux
+    # -------------------------
+    mots_generaux = [
+        "bonjour", "salut", "hello", "cc", "coucou",
+        "comment ca va", "comment allez vous", "qui es tu",
+        "que fais tu", "tes fonctions", "aide"
+    ]
+
+    if any(m in question for m in mots_generaux):
+        prompt = f"""
+Tu es un assistant IA professionnel spécialisé en audit.
+
+Réponds normalement et poliment à l'utilisateur.
+
+Message utilisateur : {req.question}
+"""
     else:
-        prompt = req.question
+        # -------------------------
+        # 2. Mode CONTEXTE (anomalies)
+        # -------------------------
+        anomalies_resp = supabase.table("anomalies") \
+            .select("*") \
+            .eq("mission_id", session_id) \
+            .execute()
 
-    # Appel IA
+        anomalies = anomalies_resp.data or []
+
+        if anomalies:
+            contexte = "Voici les anomalies détectées :\n"
+            for a in anomalies:
+                contexte += f"- {a.get('description','Aucune description')}\n"
+
+            prompt = f"""
+Tu es un assistant IA spécialisé en audit.
+
+{contexte}
+
+Réponds clairement à la question suivante :
+{req.question}
+"""
+        else:
+            prompt = f"""
+Tu es un assistant IA spécialisé en audit.
+
+Il n'y a aucune anomalie détectée pour cette mission.
+
+Réponds à la question :
+{req.question}
+"""
+
+    # -------------------------
+    # 3. Appel IA
+    # -------------------------
     engine = AuditEngine(mission_id=session_id)
     reponse = await ask_claude_general(prompt, engine.api_key)
+
     return {"reponse": reponse}
 
 
