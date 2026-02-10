@@ -12,3 +12,5 @@ openpyxl
 pypdf
 pymupdf
 xlsxwriter
+svglib
+reportlab
