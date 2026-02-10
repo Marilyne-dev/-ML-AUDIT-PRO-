@@ -262,3 +262,7 @@ Question : {req.question}
 def root():
     return {"message": "API Audit prête ! Utilisez /chat-general/<session_id> ou /chat-context/<session_id>"}
 
+
+@app.get("/")
+def root():
+    return {"status": "API Audit OK"}
