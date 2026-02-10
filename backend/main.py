@@ -1,20 +1,17 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
-from ml_engine import AuditEngine
+from ml_engine import AuditEngine, ask_claude_general
 from typing import List
+from pydantic import BaseModel
 import pandas as pd
 import io
 import xlsxwriter
-from dotenv import load_dotenv
-load_dotenv() # Charge les variables du fichier .env
-import os
-from ml_engine import ask_claude_general
-from fastapi import Request 
-from pydantic import BaseModel
-import asyncio
-
-
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from fastapi.responses import StreamingResponse
+from datetime import datetime
 
 # 1. Initialisation de l'application
 app = FastAPI()
@@ -28,7 +25,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. Route pour créer une mission
+# Modèle pour la requête du Chatbot
+class QuestionRequest(BaseModel):
+    question: str
+
+# ---------------------------------------------------------
+# 3. ROUTE : CRÉER UNE MISSION
+# ---------------------------------------------------------
 @app.post("/missions")
 async def create_mission_v4(data: dict):
     ca = float(data.get('chiffre_affaires_n', 0))
@@ -39,19 +42,15 @@ async def create_mission_v4(data: dict):
     s_signif = max(ca * 0.01, res_net * 0.05, bilan * 0.005)
     if s_signif == 0: s_signif = 1000
 
-    # On récupère l'année en texte
-    annee_txt = data.get('exercice_comptable', '2024')
-    
-    # On essaie de convertir en entier pour l'ancienne colonne
-    try:
-        annee_int = int(annee_txt)
-    except:
-        annee_int = 2024
+    # Gestion de l'année
+    annee_txt = data.get('exercice_comptable', '2025')
+    try: annee_int = int(annee_txt)
+    except: annee_int = 2025
 
     mission_v4 = {
         "raison_sociale": data.get('raison_sociale'),
         "exercice_comptable": annee_txt,
-        "exercice_n": annee_int,  # CORRECTION ICI : On remplit l'ancienne colonne aussi
+        "exercice_n": annee_int,
         "chiffre_affaires_n": ca,
         "resultat_net_n": res_net,
         "total_bilan": bilan,
@@ -63,28 +62,21 @@ async def create_mission_v4(data: dict):
         "download_count": 0
     }
 
-    # Insertion
     try:
         res = supabase.table("missions").insert(mission_v4).execute()
         return res.data
     except Exception as e:
         print(f"ERREUR SQL : {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    
 
 
-
-# 4. Route pour analyser TOUS types de fichiers (FEC, Excel, PDF)
-from typing import List # Ajoute cet import en haut si pas déjà là
-
-# ... le reste du code ...
-
-# 4. Route MULTI-FICHIERS (FEC, PDF, Excel)
+# ---------------------------------------------------------
+# 4. ROUTE : ANALYSE MULTI-FICHIERS (FEC, PDF, EXCEL)
+# ---------------------------------------------------------
 @app.post("/analyze/{mission_id}")
 async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
     
-    # On nettoie les anciennes anomalies pour cette mission avant de commencer
-    # (Sauf si tu veux garder l'historique, mais pour l'instant on remplace)
+    # On nettoie les anciennes anomalies pour cette mission (évite les doublons)
     supabase.table("anomalies").delete().eq("mission_id", mission_id).execute()
     
     engine = AuditEngine(mission_id)
@@ -101,8 +93,7 @@ async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
         # A. CAS PDF / EXCEL (DOCUMENTAIRE)
         if filename.endswith('.pdf') or filename.endswith('.xlsx') or filename.endswith('.xls'):
             try:
-                # Si c'est un Excel qui ressemble à un FEC, on pourrait le traiter comme un FEC
-                # Mais pour l'instant, on traite Excel comme un document à lire par l'IA
+                # Lecture intelligente via ml_engine
                 texte_extrait = engine.lire_fichier_universel(contents, filename)
                 
                 if "ERREUR" in texte_extrait:
@@ -112,6 +103,7 @@ async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
                         "description": f"[{filename}] {texte_extrait}"
                     }]
                 else:
+                    # Analyse par l'IA du contenu du document
                     file_anomalies = engine.analyser_document_pdf_excel(texte_extrait)
 
             except Exception as e:
@@ -120,6 +112,7 @@ async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
         # B. CAS FEC (.txt, .csv)
         else:
             df = None
+            # Test des séparateurs classiques
             separators = ['\t', ';', '|', ',']
             encodings = ['utf-8', 'latin1', 'cp1252']
 
@@ -134,179 +127,219 @@ async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
                 if df is not None: break
 
             if df is not None:
-                # Nettoyage
+                # Nettoyage des colonnes
                 df.columns = [c.strip().lower() for c in df.columns]
+                # Mapping pour s'assurer que les colonnes ont les bons noms
                 mapping = {
                     'journalcode': 'journal_code', 'ecriturenum': 'ecriture_num',
                     'ecrituredate': 'ecriture_date', 'comptenum': 'compte_num',
-                    'ecriturelib': 'ecriture_lib', 'debit': 'debit', 'credit': 'credit'
+                    'ecriturelib': 'ecriture_lib', 'debit': 'debit', 'credit': 'credit',
+                    'compte': 'compte_num', 'libelle': 'ecriture_lib', 'date': 'ecriture_date'
                 }
                 df.rename(columns=mapping, inplace=True)
+                
+                # Vérification colonne obligatoire manquante
+                required = ['journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit']
+                for col in required:
+                    if col not in df.columns: df[col] = '' if col not in ['debit', 'credit'] else 0
+
+                # Lancement de l'analyse FEC (Benford, Tracfin, etc.)
                 file_anomalies = engine.executer_analyse_v4(df)
 
-        # C. MARQUAGE DES ANOMALIES AVEC LE NOM DU FICHIER
-        # Pour savoir dans le rapport de quel fichier ça vient
+        # C. MARQUAGE ET AJOUT AU TOTAL
         for anom in file_anomalies:
             anom['mission_id'] = mission_id
-            # On ajoute le nom du fichier au début de la description
+            # On ajoute le nom du fichier au début de la description pour s'y retrouver
             anom['description'] = f"📄 [{file.filename}] {anom.get('description', '')}"
             total_anomalies.append(anom)
 
-    # 3. SAUVEGARDE EN BASE (Une seule fois pour tout le lot)
+    # 3. SAUVEGARDE EN BASE
     if total_anomalies:
-        # On insère par paquets de 100 pour éviter de bloquer si y'en a trop
-        batch_size = 100
+        # On insère par paquets de 50 pour éviter de bloquer
+        batch_size = 50
         for i in range(0, len(total_anomalies), batch_size):
-            batch = total_anomalies[i:i + batch_size]
-            supabase.table("anomalies").insert(batch).execute()
+            try:
+                batch = total_anomalies[i:i + batch_size]
+                supabase.table("anomalies").insert(batch).execute()
+            except Exception as e:
+                print(f"Erreur insertion batch: {e}")
             
         supabase.table("missions").update({"statut": "Analysée"}).eq("id", mission_id).execute()
 
     return {"anomalies_detectees": len(total_anomalies)}
 
 
-# 5. Route pour compter les téléchargements (Traçabilité)
+# ---------------------------------------------------------
+# 5. ROUTE : CHATBOT INTELLIGENT
+# ---------------------------------------------------------
+@app.post("/chat/{mission_id}")
+async def chat_audit(mission_id: str, req: QuestionRequest):
+    question = req.question.lower().strip()
+    
+    # 1. Détection des salutations (pour répondre vite et poliment)
+    greetings = ["bonjour", "salut", "hello", "coucou", "ca va", "ça va", "merci"]
+    if any(g in question for g in greetings):
+        return {"reponse": "Bonjour ! Je suis l'IA d'audit. Je vais bien, merci. Comment puis-je vous aider sur ce dossier ?"}
+
+    # 2. Si c'est une vraie question -> On récupère le contexte (les anomalies)
+    response = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
+    anomalies = response.data if response.data else []
+    
+    # Construction du contexte pour l'IA
+    if anomalies:
+        contexte = f"Voici les {len(anomalies)} anomalies trouvées sur ce dossier :\n"
+        for a in anomalies:
+            contexte += f"- [{a.get('niveau_criticite', 'INFO')}] {a.get('type_anomalie', '')} : {a.get('description', '')} ({a.get('montant', 0)}€)\n"
+    else:
+        contexte = "Aucune anomalie n'a été détectée pour l'instant sur ce dossier."
+
+    full_prompt = f"""
+    CONTEXTE DU DOSSIER AUDIT :
+    {contexte}
+
+    QUESTION DE L'UTILISATEUR :
+    {req.question}
+
+    CONSIGNE : Réponds en tant qu'expert comptable. Base-toi sur le contexte ci-dessus. Sois précis et professionnel.
+    """
+    
+    # Appel IA via la fonction asynchrone définie dans ml_engine
+    engine = AuditEngine(mission_id)
+    reponse_ia = await ask_claude_general(full_prompt, engine.api_key)
+    
+    return {"reponse": reponse_ia}
+
+
+# ---------------------------------------------------------
+# 6. ROUTE : TRACKING DES TÉLÉCHARGEMENTS
+# ---------------------------------------------------------
 @app.post("/track-download/{mission_id}")
 async def track_download(mission_id: str):
     try:
-        # On récupère la mission actuelle pour avoir le compteur actuel
-        response = supabase.table("missions").select("download_count").eq("id", mission_id).execute()
-        
-        current_count = 0
-        if response.data and len(response.data) > 0:
-            val = response.data[0]['download_count']
-            if val is not None:
-                current_count = val
-        
-        # On incrémente de 1
-        new_count = current_count + 1
-        
-        # On met à jour
-        supabase.table("missions").update({"download_count": new_count}).eq("id", mission_id).execute()
-        
-        return {"success": True, "new_count": new_count}
+        current = supabase.table("missions").select("download_count").eq("id", mission_id).execute()
+        val = 0
+        if current.data:
+            val = current.data[0]['download_count'] or 0
+            
+        new_val = val + 1
+        supabase.table("missions").update({"download_count": new_val}).eq("id", mission_id).execute()
+        return {"success": True, "new_count": new_val}
     except Exception as e:
         print(f"Erreur tracking: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------
+# 7. ROUTE : EXPORT (PDF, EXCEL, TXT)
+# ---------------------------------------------------------
+@app.get("/export/{mission_id}")
+async def export_report(mission_id: str, format: str = "pdf"):
+    # Récupérer les données
+    mission_response = supabase.table("missions").select("*").eq("id", mission_id).execute()
+    anomalies_response = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
     
+    if not mission_response.data:
+        raise HTTPException(status_code=404, detail="Mission introuvable")
 
+    mission = mission_response.data[0]
+    anomalies = anomalies_response.data or []
+    
+    # On incrémente le compteur
+    await track_download(mission_id)
 
-# 6. Route pour le Chatbot Audit
-# --------------------------
-# --------------------------
-class QuestionRequest(BaseModel):
-    question: str
-
-# --------------------------
-# 3. Route général (sans contexte)
-# --------------------------
-@app.post("/chat/{session_id}")
-async def chat(session_id: str, req: QuestionRequest):
-
-    question = req.question.lower().strip()
-
-    # -------------------------
-    # 1. Messages généraux
-    # -------------------------
-    mots_generaux = [
-        "bonjour", "salut", "hello", "cc", "coucou",
-        "comment ca va", "comment allez vous", "qui es tu",
-        "que fais tu", "tes fonctions", "aide"
-    ]
-
-    if any(m in question for m in mots_generaux):
-        prompt = f"""
-Tu es un assistant IA professionnel spécialisé en audit.
-
-Réponds normalement et poliment à l'utilisateur.
-
-Message utilisateur : {req.question}
-"""
-    else:
-        # -------------------------
-        # 2. Mode CONTEXTE (anomalies)
-        # -------------------------
-        anomalies_resp = supabase.table("anomalies") \
-            .select("*") \
-            .eq("mission_id", session_id) \
-            .execute()
-
-        anomalies = anomalies_resp.data or []
-
-        if anomalies:
-            contexte = "Voici les anomalies détectées :\n"
-            for a in anomalies:
-                contexte += f"- {a.get('description','Aucune description')}\n"
-
-            prompt = f"""
-Tu es un assistant IA spécialisé en audit.
-
-{contexte}
-
-Réponds clairement à la question suivante :
-{req.question}
-"""
-        else:
-            prompt = f"""
-Tu es un assistant IA spécialisé en audit.
-
-Il n'y a aucune anomalie détectée pour cette mission.
-
-Réponds à la question :
-{req.question}
-"""
-
-    # -------------------------
-    # 3. Appel IA
-    # -------------------------
-    engine = AuditEngine(mission_id=session_id)
-    reponse = await ask_claude_general(prompt, engine.api_key)
-
-    return {"reponse": reponse}
-
-
-# --------------------------
-# 4. Route contexte (anomalies)
-# --------------------------
-@app.post("/chat-context/{session_id}")
-async def chat_context(session_id: str, req: QuestionRequest):
-    """
-    Pose une question à l'IA avec le contexte des anomalies de la mission
-    """
-    # 1. Récupération des anomalies de la mission depuis Supabase
-    anomalies_resp = supabase.table("anomalies").select("*").eq("mission_id", session_id).execute()
-    anomalies = anomalies_resp.data or []
-
-    # 2. Construction du contexte
-    contexte = f"Voici les anomalies détectées pour la mission {session_id}:\n"
-    if anomalies:
+    # --- FORMAT PDF ---
+    if format == "pdf":
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        p.setTitle(f"Rapport Audit - {mission['raison_sociale']}")
+        
+        # En-tête
+        p.setFont("Helvetica-Bold", 16)
+        p.setFillColor(colors.darkblue)
+        p.drawString(50, 750, "RAPPORT D'AUDIT LÉGAL - ML-AUDIT PRO")
+        
+        p.setFont("Helvetica", 12)
+        p.setFillColor(colors.black)
+        p.drawString(50, 720, f"Client : {mission['raison_sociale']}")
+        p.drawString(50, 705, f"Exercice : {mission.get('exercice_comptable', 'N/A')}")
+        p.drawString(50, 690, f"Date : {datetime.now().strftime('%d/%m/%Y')}")
+        
+        y = 650
+        p.setFont("Helvetica-Bold", 10)
+        p.drawString(50, y, "NIVEAU")
+        p.drawString(120, y, "TYPE")
+        p.drawString(250, y, "DESCRIPTION")
+        p.drawRightString(550, y, "MONTANT")
+        
+        y -= 20
+        p.setFont("Helvetica", 9)
+        
         for a in anomalies:
-            contexte += f"- {a.get('description', 'Aucune description')}\n"
+            if y < 50:
+                p.showPage()
+                y = 750
+            
+            # Couleur selon criticité
+            if a.get('niveau_criticite') == 'CRITIQUE':
+                p.setFillColor(colors.red)
+            elif a.get('niveau_criticite') == 'ELEVE':
+                p.setFillColor(colors.orange)
+            else:
+                p.setFillColor(colors.black)
+                
+            p.drawString(50, y, str(a.get('niveau_criticite', 'INFO')))
+            p.drawString(120, y, str(a.get('type_anomalie', ''))[:20])
+            p.setFillColor(colors.black)
+            p.drawString(250, y, str(a.get('description', ''))[:60] + "...")
+            
+            montant = f"{a.get('montant', 0):,.2f} €"
+            p.drawRightString(550, y, montant)
+            y -= 20
+
+        p.save()
+        buffer.seek(0)
+        return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.pdf"})
+
+    # --- FORMAT EXCEL ---
+    elif format == "xlsx":
+        buffer = io.BytesIO()
+        # On prépare les données proprement
+        data_export = []
+        for a in anomalies:
+            data_export.append({
+                "Niveau": a.get('niveau_criticite'),
+                "Cycle": a.get('cycle'),
+                "Type": a.get('type_anomalie'),
+                "Description": a.get('description'),
+                "Montant": a.get('montant', 0),
+                "Score ML": a.get('score_ml')
+            })
+            
+        df = pd.DataFrame(data_export)
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Anomalies', index=False)
+            # Auto-ajustement des colonnes (optionnel mais sympa)
+            worksheet = writer.sheets['Anomalies']
+            worksheet.set_column('D:D', 50) # Largeur description
+            
+        buffer.seek(0)
+        return StreamingResponse(buffer, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.xlsx"})
+
+    # --- FORMAT TXT (Par défaut) ---
     else:
-        contexte += "- Aucune anomalie détectée.\n"
-
-    # 3. Préparation du prompt
-    prompt = f"""
-Tu es un assistant IA spécialisé en audit. Voici le contexte de la mission :
-{contexte}
-
-Réponds de manière claire et précise à la question suivante :
-Question : {req.question}
-"""
-
-    # 4. Appel à l'IA
-    engine = AuditEngine(mission_id=session_id)
-    reponse = await ask_claude_general(prompt, engine.api_key)
-    return {"reponse": reponse}
-
-# --------------------------
-# 5. Exemple d'endpoint pour test rapide
-# --------------------------
-@app.get("/")
-def root():
-    return {"message": "API Audit prête ! Utilisez /chat-general/<session_id> ou /chat-context/<session_id>"}
-
-
-@app.get("/")
-def root():
-    return {"status": "API Audit OK"}
+        content = f"RAPPORT AUDIT - {mission['raison_sociale']}\n"
+        content += f"Généré le {datetime.now().strftime('%d/%m/%Y')}\n"
+        content += "="*60 + "\n\n"
+        
+        total = 0
+        for i, a in enumerate(anomalies):
+            content += f"ANOMALIE #{i+1}\n"
+            content += f"Type: {a.get('type_anomalie')} ({a.get('niveau_criticite')})\n"
+            content += f"Montant: {a.get('montant')} €\n"
+            content += f"Détail: {a.get('description')}\n"
+            content += "-"*40 + "\n"
+            total += (a.get('montant') or 0)
+            
+        content += f"\nIMPACT TOTAL : {total:,.2f} €"
+        
+        return StreamingResponse(io.BytesIO(content.encode()), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.txt"})

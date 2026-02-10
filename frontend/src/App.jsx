@@ -8,7 +8,7 @@ import {
   ChevronDown, ChevronRight, Grid, Circle, Lock
 } from 'lucide-react';
 
-// Imports des nouveaux fichiers
+// --- IMPORT DES MODULES EXTERNES (Fichiers que nous avons créés) ---
 import { MENU_STRUCTURE } from './menuConfig';
 import ConfigurationView from './ConfigurationView';
 import HelpView from './HelpView';
@@ -19,10 +19,10 @@ const API_URL = (window.location.hostname === "localhost" || window.location.hos
   : "https://ml-audit-pro.onrender.com";
 
 // ============================================================================
-// COMPOSANTS (VUES EXISTANTES)
+// COMPOSANTS INTERNES (VUES SPÉCIFIQUES À APP.JSX)
 // ============================================================================
 
-
+// 1. DASHBOARD
 const DashboardView = ({ missions }) => (
   <div className="max-w-5xl mx-auto animate-in fade-in zoom-in duration-300">
     <header className="mb-8">
@@ -51,15 +51,16 @@ const DashboardView = ({ missions }) => (
   </div>
 );
 
+// 2. NOUVELLE MISSION
 const NewMissionView = ({ onCreate, loading }) => {
-    const [form, setForm] = useState({ raisonSociale: '', exercice: '2024', ca: '', resultat: '', bilan: '' });
+    const [form, setForm] = useState({ raisonSociale: '', exercice: '2025', ca: '', resultat: '', bilan: '' });
     return (
         <div className="max-w-3xl mx-auto bg-white p-8 rounded-[40px] shadow-xl border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
             <h3 className="text-2xl font-black mb-6 flex items-center gap-3"><PlusCircle className="text-blue-600"/> Nouvelle Mission</h3>
             <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                     <input type="text" placeholder="Raison Sociale" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.raisonSociale} onChange={e => setForm({...form, raisonSociale: e.target.value})} />
-                    <input type="text" placeholder="Exercice (2024)" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.exercice} onChange={e => setForm({...form, exercice: e.target.value})} />
+                    <input type="text" placeholder="Exercice (2025)" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.exercice} onChange={e => setForm({...form, exercice: e.target.value})} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <input type="number" placeholder="CA (N)" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.ca} onChange={e => setForm({...form, ca: e.target.value})} />
@@ -72,105 +73,66 @@ const NewMissionView = ({ onCreate, loading }) => {
     );
 };
 
-    const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) => {
-    // State pour stocker les fichiers sélectionnés par mission
-    const [selectedFilesByMission, setSelectedFilesByMission] = useState({});
-
-    return (
-        <div className="space-y-4 max-w-5xl mx-auto">
-        <h2 className="text-2xl font-black mb-6 italic flex items-center gap-3">
-            <Folder className="text-blue-600" /> Portefeuille Missions
-        </h2>
-
-        {missions.map(m => {
-            const files = selectedFilesByMission[m.id] || [];
-            return (
-            <div
-                key={m.id}
-                className="bg-white p-6 rounded-[20px] shadow-sm border flex flex-col md:flex-row justify-between md:items-center gap-4 hover:shadow-md transition"
-            >
-                {/* Infos mission */}
-                <div>
-                <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-bold text-lg text-slate-900">{m.raison_sociale}</h4>
-                    <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold">{m.exercice_comptable}</span>
-                </div>
-                <div className="flex gap-2">
-                    {m.statut === 'Analysée' ? (
-                    <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded flex items-center gap-1">
-                        <CheckCircle size={10} /> Analysé
-                    </span>
-                    ) : (
-                    <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
-                        En attente
-                    </span>
-                    )}
-                </div>
-                </div>
-
-                {/* Actions mission */}
-                <div className="flex gap-2 items-center">
-                {m.statut === 'Analysée' ? (
-                    <button
-                    onClick={() => onSelectMission(m)}
-                    className="bg-slate-900 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition"
-                    >
-                    RÉSULTATS
-                    </button>
-                ) : (
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border">
-                    <input
-                        type="file"
-                        multiple
-                        className="text-[10px] w-32"
-                        onChange={(e) =>
-                        setSelectedFilesByMission((prev) => ({
-                            ...prev,
-                            [m.id]: Array.from(e.target.files),
-                        }))
-                        }
-                    />
-                    <button
-                        onClick={() => {
-                        if (!files || files.length === 0) {
-                            alert('Aucun fichier sélectionné.');
-                            return;
-                        }
-                        onUpload(m, files);
-                        }}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold"
-                    >
-                        Analyser
-                    </button>
-                    {files.length > 0 && (
-                        <span className="text-[10px] text-slate-700 font-bold ml-2">
-                        {files.length} fichier{files.length > 1 ? 's' : ''} sélectionné{files.length > 1 ? 's' : ''}
-                        </span>
-                    )}
-                    </div>
-                )}
-                </div>
-            </div>
-            );
-        })}
+// 3. LISTE DES MISSIONS (PORTEFEUILLE)
+const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) => (
+  <div className="space-y-4 max-w-5xl mx-auto">
+    <h2 className="text-2xl font-black mb-6 italic flex items-center gap-3"><Folder className="text-blue-600"/> Portefeuille Missions</h2>
+    {missions.map(m => (
+      <div key={m.id} className="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between md:items-center gap-4 hover:shadow-md transition">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+              <h4 className="font-bold text-lg text-slate-900">{m.raison_sociale}</h4>
+              <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold">{m.exercice_comptable}</span>
+          </div>
+          <div className="flex gap-2">
+            {m.statut === 'Analysée' 
+                ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded flex items-center gap-1"><CheckCircle size={10}/> Analysé</span> 
+                : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">En attente</span>
+            }
+          </div>
         </div>
-    );
-    };
+        <div className="flex gap-2">
+          {m.statut === 'Analysée' ? (
+              <button onClick={() => onSelectMission(m)} className="bg-slate-900 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-600 transition">RÉSULTATS</button>
+          ) : (
+            <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                <label className="cursor-pointer bg-blue-600 text-white px-3 py-1.5 rounded font-bold text-xs hover:bg-blue-700 flex items-center gap-2">
+                    <Upload size={12}/>
+                    {uploadingId === m.id ? "ANALYSE..." : "UPLOAD"}
+                    <input 
+                        type="file" 
+                        multiple 
+                        className="hidden" 
+                        onChange={(e) => onUpload(m, e.target.files)} 
+                    />
+                </label>
+            </div>
+          )}
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
-
+// 4. RAPPORT DÉTAILLÉ
 const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) => {
+    // Logique de filtrage des 21 cycles
     const filteredAnomalies = anomalies.filter(a => {
         if (filterCategory === 'ALL') return true;
-        if (filterCategory === 'ACTIF') return ['IMMO', 'STOCKS', 'CLIENTS', 'TRESORERIE'].some(c => a.cycle.includes(c));
-        if (filterCategory === 'PASSIF') return ['CAPITAUX', 'PROVISIONS', 'EMPRUNTS', 'FOURNISSEURS', 'DETTES'].some(c => a.cycle.includes(c));
-        if (filterCategory === 'RESULTAT') return ['CHARGES', 'PRODUITS', 'PERSONNEL', 'IMPOTS'].some(c => a.cycle.includes(c));
-        if (filterCategory === 'LEGAL') return ['TRACFIN', 'FRAUDE', 'LEGAL', 'BLANCHIMENT'].some(t => a.type_anomalie.includes(t));
+        if (filterCategory === 'ACTIF') return ['IMMO', 'STOCKS', 'CLIENTS', 'TRESORERIE'].some(c => a.cycle && a.cycle.includes(c));
+        if (filterCategory === 'PASSIF') return ['CAPITAUX', 'PROVISIONS', 'EMPRUNTS', 'FOURNISSEURS', 'DETTES'].some(c => a.cycle && a.cycle.includes(c));
+        if (filterCategory === 'RESULTAT') return ['CHARGES', 'PRODUITS', 'PERSONNEL', 'IMPOTS'].some(c => a.cycle && a.cycle.includes(c));
+        if (filterCategory === 'LEGAL') return ['TRACFIN', 'FRAUDE', 'LEGAL', 'BLANCHIMENT'].some(t => a.type_anomalie && a.type_anomalie.includes(t));
         if (filterCategory === 'OD') return a.cycle === 'OPERATIONS_DIVERSES';
+        if (filterCategory === 'CRITIQUE') return a.niveau_criticite === 'CRITIQUE';
         return true;
     });
 
+    // Gestion du menu téléchargement
+    const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+
     return (
-        <div className="animate-in fade-in duration-300 max-w-6xl mx-auto">
+        <div className="animate-in fade-in duration-300 max-w-6xl mx-auto" onClick={() => setShowDownloadMenu(false)}>
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h3 className="text-2xl font-black italic">Rapport : {mission.raison_sociale}</h3>
@@ -178,10 +140,30 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
                         Exercice {mission.exercice_comptable} • Filtre : <span className="text-blue-600">{filterCategory}</span>
                     </p>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={onDownload} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 flex items-center gap-2">
-                        <Download size={14}/> TÉLÉCHARGER
-                    </button>
+                
+                <div className="flex gap-2 relative">
+                    <div className="relative" onClick={e => e.stopPropagation()}>
+                        <button 
+                            onClick={() => setShowDownloadMenu(!showDownloadMenu)} 
+                            className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 flex items-center gap-2 shadow-lg"
+                        >
+                            <Download size={14}/> TÉLÉCHARGER <ChevronDown size={14}/>
+                        </button>
+
+                        {showDownloadMenu && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                                <button onClick={() => onDownload('pdf')} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 font-bold flex items-center gap-2 border-b border-slate-100">
+                                    <FileText size={16} className="text-red-500"/> Format PDF
+                                </button>
+                                <button onClick={() => onDownload('xlsx')} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 font-bold flex items-center gap-2 border-b border-slate-100">
+                                    <Grid size={16} className="text-green-600"/> Format Excel
+                                </button>
+                                <button onClick={() => onDownload('txt')} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 font-bold flex items-center gap-2">
+                                    <FileText size={16} className="text-slate-500"/> Format Texte
+                                </button>
+                            </div>
+                        )}
+                    </div>
                     <button onClick={onBack} className="bg-slate-200 px-4 py-2 rounded-xl text-slate-700 font-bold text-xs">RETOUR</button>
                 </div>
             </div>
@@ -215,7 +197,7 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
                 </div>
             ) : (
                 <div className="p-10 text-center text-slate-400 italic bg-white rounded-[20px]">
-                    Aucune donnée trouvée pour la catégorie {filterCategory} dans ce dossier.
+                    Aucune donnée trouvée pour la catégorie <strong>{filterCategory}</strong> dans ce dossier.
                 </div>
             )}
         </div>
@@ -244,7 +226,6 @@ function App() {
   const [view, setView] = useState('DASHBOARD');
   const [filterCategory, setFilterCategory] = useState('ALL');
   
-  // NOUVEAU : Etat pour l'accordéon (quel menu est ouvert ?)
   const [expandedSection, setExpandedSection] = useState(null);
   const [showFullMenu, setShowFullMenu] = useState(true);
   
@@ -256,7 +237,6 @@ function App() {
   const [anomalies, setAnomalies] = useState([]);
   const [selectedMission, setSelectedMission] = useState(null);
   const [uploadingId, setUploadingId] = useState(null);
-  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
 
@@ -296,35 +276,24 @@ function App() {
     } catch (e) { alert("Erreur création."); } finally { setLoading(false); }
   };
 
-    const handleUpload = async (mission, files) => {
-        if (!files || files.length === 0) return alert("Aucun fichier sélectionné.");
-        
-        setUploadingId(mission.id); 
-        const formData = new FormData();
-        
-        // On ajoute tous les fichiers sélectionnés à la requête
-        for (let i = 0; i < files.length; i++) {
-            formData.append('files', files[i]); // Note le 's' à 'files'
-        }
+  const handleUpload = async (mission, files) => {
+    if (!files || files.length === 0) return alert("Aucun fichier sélectionné.");
+    setUploadingId(mission.id); 
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
 
-        try {
-        // Le backend va traiter la liste
-        await axios.post(`${API_URL}/analyze/${mission.id}`, formData);
-        await fetchMissions();
-        fetchAnomalies(mission);
-        } catch (e) { 
-        console.error("Erreur complète Axios :", e);
-        if (e.response) {
-            console.error("Données du backend :", e.response.data);
-            alert("Erreur analyse : " + JSON.stringify(e.response.data, null, 2));
-        } else {
-            alert("Erreur analyse : " + e.message);
-        }
-    }finally { 
-            setUploadingId(null); 
-        }
-    };
-
+    try {
+      await axios.post(`${API_URL}/analyze/${mission.id}`, formData);
+      await fetchMissions();
+      fetchAnomalies(mission);
+    } catch (e) { 
+        alert("Erreur analyse : " + (e.response?.data?.detail || e.message)); 
+    } finally { 
+        setUploadingId(null); 
+    }
+  };
 
   const fetchAnomalies = async (mission) => {
     setLoading(true);
@@ -337,48 +306,59 @@ function App() {
     } catch (e) { alert("Erreur données."); } finally { setLoading(false); }
   };
 
-  const handleDownloadReport = async () => {
+  const handleDownloadReport = (format) => {
     if (!selectedMission) return;
-    try {
-        const res = await axios.post(`${API_URL}/track-download/${selectedMission.id}`);
-        if(res.data.success) {
-             setMissions(prev => prev.map(m => m.id === selectedMission.id ? {...m, download_count: res.data.new_count} : m));
-        }
-    } catch (e) { console.error(e); }
-    // (Génération du fichier TXT identique à avant)
-    alert("Téléchargement lancé.");
+    window.open(`${API_URL}/export/${selectedMission.id}?format=${format}`, '_blank');
   };
 
-  // --- LOGIQUE DU MENU (ACCORDÉON) ---
+  // --- NAVIGATION MENU INTELLIGENTE ---
   const toggleSection = (sectionId) => {
-      // Si on clique sur la section déjà ouverte, on la ferme. Sinon on l'ouvre.
       setExpandedSection(expandedSection === sectionId ? null : sectionId);
   };
 
   const handleMenuItemClick = (item) => {
-    setFilterCategory('ALL');
+    setFilterCategory('ALL'); // Reset filtre
     
-    if (item.active) {
-        // Redirection vers les vues
-        if(item.id === 'config_ml' || item.id === 'config_seuils') setView('CONFIG');
-        else if(item.id === 'docs' || item.id === 'about') setView('HELP');
-        else if (item.id === 'new_mission') setView('NEW');
-        else if (['missions_list', 'params_client', 'seuils_isa', 'import_excel', 'import_fec', 'import_balance', 'check_integrity', 'analysis_global', 'ml_metrics'].includes(item.id)) setView('LIST');
-        else {
-            if (selectedMission) {
-                setView('REPORT');
-                if (item.id === 'cycle_actif') setFilterCategory('ACTIF');
-                else if (item.id === 'cycle_passif') setFilterCategory('PASSIF');
-                else if (item.id === 'cycle_resultat') setFilterCategory('RESULTAT');
-                else if (item.id === 'cycle_od') setFilterCategory('OD');
-                else if (['procureur', 'continuite', 'conventions', 'legal_tracfin'].includes(item.id)) setFilterCategory('LEGAL');
-            } else {
-                alert("Sélectionnez un dossier d'abord.");
-                setView('LIST');
-            }
-        }
-    } else {
+    // Si l'item n'est pas actif (marqué "active: false" dans menuConfig)
+    if (!item.active) {
         setView('SOON');
+        return;
+    }
+
+    // --- MAPPING DES ACTIONS ---
+    
+    // 1. Pages de GESTION
+    if (item.id === 'new_mission') {
+        setView('NEW');
+    }
+    else if (['missions_list', 'params_client', 'seuils_isa', 'import_excel', 'import_fec', 'import_balance', 'check_integrity', 'analysis_global', 'ml_metrics'].includes(item.id)) {
+        setView('LIST'); // Redirige vers la liste des dossiers
+    }
+    // 2. Pages de CONFIGURATION / AIDE
+    else if (item.id === 'config_ml' || item.id === 'config_seuils') {
+        setView('CONFIG');
+    }
+    else if (item.id === 'docs' || item.id === 'about') {
+        setView('HELP');
+    }
+    // 3. Pages de RÉSULTATS (Nécessite sélection dossier)
+    else {
+        if (selectedMission) {
+            setView('REPORT');
+            
+            // Application des filtres selon le bouton cliqué
+            if (item.id === 'cycle_actif') setFilterCategory('ACTIF');
+            else if (item.id === 'cycle_passif') setFilterCategory('PASSIF');
+            else if (item.id === 'cycle_resultat') setFilterCategory('RESULTAT');
+            else if (item.id === 'cycle_od') setFilterCategory('OD');
+            else if (['procureur', 'continuite', 'conventions', 'legal_tracfin'].includes(item.id)) setFilterCategory('LEGAL');
+            else if (item.id === 'anomalies_critiques') setFilterCategory('CRITIQUE');
+            else setFilterCategory('ALL');
+
+        } else {
+            alert("Veuillez sélectionner un dossier dans la liste pour voir les résultats.");
+            setView('LIST');
+        }
     }
     
     if (window.innerWidth < 1024) setIsMenuOpen(false);
@@ -417,6 +397,13 @@ function App() {
             <div><h1 className="font-black text-white text-lg leading-none">ML-AUDIT<br/><span className="text-blue-400 text-sm">PRO v4.0</span></h1></div>
         </div>
 
+        <div className="mb-6 px-4 py-3 bg-slate-800 rounded-2xl border border-slate-700">
+            <div className={`inline-flex items-center gap-2 px-2 py-1 rounded text-[10px] font-black uppercase ${userRole === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                {userRole === 'admin' ? 'ADMIN' : 'CLIENT'}
+            </div>
+            <p className="text-xs text-slate-300 mt-1 truncate">{session.user.email}</p>
+        </div>
+
         <nav className="space-y-1 flex-1 overflow-y-auto pr-2 custom-scrollbar">
           <button onClick={() => { setView('DASHBOARD'); setShowFullMenu(false); }} className={`w-full text-left p-3 rounded-xl flex items-center gap-3 text-sm font-bold transition ${view === 'DASHBOARD' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
             <LayoutDashboard size={18}/> Tableau de Bord
@@ -437,7 +424,6 @@ function App() {
             <div className="pl-2 space-y-1 mt-2 pb-10">
                 {MENU_STRUCTURE.map((section) => (
                     <div key={section.id}>
-                        {/* TITRE DE SECTION (CLIQUABLE POUR ACCORDÉON) */}
                         <button 
                             onClick={() => toggleSection(section.id)}
                             className="w-full text-left p-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group"
@@ -447,8 +433,7 @@ function App() {
                             </span>
                             <ChevronDown size={12} className={`transition-transform ${expandedSection === section.id ? 'rotate-180' : ''}`}/>
                         </button>
-
-                        {/* SOUS-MENU (S'AFFICHE SI SECTION OUVERTE) */}
+                        
                         {expandedSection === section.id && (
                             <div className="space-y-1 border-l-2 border-slate-700 pl-3 ml-2 mt-1 mb-3 animate-in slide-in-from-top-1 duration-200">
                                 {section.items.map(item => (
@@ -470,7 +455,6 @@ function App() {
         </nav>
         
         <div className="pt-4 border-t border-slate-800">
-             <div className="mb-4 px-2"><p className="text-xs font-bold text-slate-500 truncate">{session.user.email}</p></div>
              <button onClick={() => supabase.auth.signOut()} className="flex items-center gap-3 text-red-400 p-2 hover:bg-slate-800 rounded-lg font-bold w-full text-xs"><LogOut size={16}/> DÉCONNEXION</button>
         </div>
       </div>
@@ -491,10 +475,7 @@ function App() {
 
       </div>
 
-        {/* NOUVEAU : ChatBot accessible depuis toutes les vues */}
-          {selectedMission && <ChatBot missionId={selectedMission.id} />}
-
-      
+      {selectedMission && <ChatBot missionId={selectedMission.id} />}
     </div>
   );
 }
