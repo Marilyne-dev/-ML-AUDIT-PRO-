@@ -16,15 +16,15 @@ from datetime import datetime
 # 1. Initialisation de l'application
 app = FastAPI()
 
+
 # 2. Configuration CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # L'étoile permet à TOUT le monde de se connecter (Idéal pour le développement/test)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Modèle pour la requête du Chatbot
 class QuestionRequest(BaseModel):
     question: str
@@ -343,3 +343,13 @@ async def export_report(mission_id: str, format: str = "pdf"):
         content += f"\nIMPACT TOTAL : {total:,.2f} €"
         
         return StreamingResponse(io.BytesIO(content.encode()), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.txt"})
+
+
+# ... (tout ton code précédent) ...
+
+# ---------------------------------------------------------
+# 8. ROUTE RACINE (Pour vérifier que le serveur est en ligne)
+# ---------------------------------------------------------
+@app.get("/")
+def read_root():
+    return {"status": "ML-AUDIT PRO API is running", "version": "4.0"}        
