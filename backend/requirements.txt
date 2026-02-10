@@ -10,5 +10,5 @@ python-multipart
 anthropic
 openpyxl
 pypdf
-PyMuPDF
-XlsxWriter
+pymupdf
+xlsxwriter
