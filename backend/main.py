@@ -12,6 +12,16 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from fastapi.responses import StreamingResponse
 from datetime import datetime
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from pydantic import BaseModel
+
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()   # charge le .env
 
 # 1. Initialisation de l'application
 app = FastAPI()
@@ -73,97 +83,130 @@ async def create_mission_v4(data: dict):
 # ---------------------------------------------------------
 # 4. ROUTE : ANALYSE MULTI-FICHIERS (FEC, PDF, EXCEL)
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# 4. ROUTE : ANALYSE MULTI-FICHIERS (CORRIGÉE & OPTIMISÉE)
+# ---------------------------------------------------------
 @app.post("/analyze/{mission_id}")
 async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
-    
-    # On nettoie les anciennes anomalies pour cette mission (évite les doublons)
+
+    # Nettoyer anciennes anomalies
     supabase.table("anomalies").delete().eq("mission_id", mission_id).execute()
-    
+
     engine = AuditEngine(mission_id)
     total_anomalies = []
 
-    # BOUCLE SUR CHAQUE FICHIER UPLOADÉ
+    # Boucle sur chaque fichier envoyé
     for file in files:
         contents = await file.read()
         filename = file.filename.lower()
-        print(f"📂 Analyse du fichier : {filename}")
-        
+
         file_anomalies = []
+        df = None
 
-        # A. CAS PDF / EXCEL (DOCUMENTAIRE)
-        if filename.endswith('.pdf') or filename.endswith('.xlsx') or filename.endswith('.xls'):
+        # =======================
+        # CAS 1 : EXCEL
+        # =======================
+        if filename.endswith(('.xlsx', '.xls')):
+
+            df = engine.convertir_excel_en_df(contents)
+
+            if df is not None:
+                file_anomalies = engine.executer_analyse_v4(df)
+            else:
+                texte = engine.lire_fichier_universel(contents, filename)
+                file_anomalies = engine.analyser_document_pdf_excel(texte)
+
+        # =======================
+        # CAS 2 : PDF
+        # =======================
+        elif filename.endswith('.pdf'):
+
             try:
-                # Lecture intelligente via ml_engine
-                texte_extrait = engine.lire_fichier_universel(contents, filename)
-                
-                if "ERREUR" in texte_extrait:
-                    file_anomalies = [{
-                        "cycle": "IMPORT", "type_anomalie": "ERREUR LECTURE",
-                        "niveau_criticite": "FAIBLE", "score_ml": 0, "montant": 0,
-                        "description": f"[{filename}] {texte_extrait}"
-                    }]
-                else:
-                    # Analyse par l'IA du contenu du document
-                    file_anomalies = engine.analyser_document_pdf_excel(texte_extrait)
+                texte = engine.lire_fichier_universel(contents, filename)
+                file_anomalies = engine.analyser_document_pdf_excel(texte)
+            except Exception:
+                file_anomalies = []
 
-            except Exception as e:
-                print(f"Erreur sur {filename}: {e}")
-
-        # B. CAS FEC (.txt, .csv)
+        # =======================
+        # CAS 3 : TXT / FEC / CSV
+        # =======================
         else:
-            df = None
-            # Test des séparateurs classiques
+
             separators = ['\t', ';', '|', ',']
             encodings = ['utf-8', 'latin1', 'cp1252']
 
             for encoding in encodings:
                 for sep in separators:
                     try:
-                        temp_df = pd.read_csv(io.BytesIO(contents), sep=sep, encoding=encoding, dtype=str, on_bad_lines='skip')
+                        temp_df = pd.read_csv(
+                            io.BytesIO(contents),
+                            sep=sep,
+                            encoding=encoding,
+                            dtype=str,
+                            on_bad_lines='skip'
+                        )
                         if temp_df.shape[1] > 1:
                             df = temp_df
                             break
-                    except: continue
-                if df is not None: break
+                    except:
+                        continue
+                if df is not None:
+                    break
 
             if df is not None:
-                # Nettoyage des colonnes
                 df.columns = [c.strip().lower() for c in df.columns]
-                # Mapping pour s'assurer que les colonnes ont les bons noms
+
                 mapping = {
-                    'journalcode': 'journal_code', 'ecriturenum': 'ecriture_num',
-                    'ecrituredate': 'ecriture_date', 'comptenum': 'compte_num',
-                    'ecriturelib': 'ecriture_lib', 'debit': 'debit', 'credit': 'credit',
-                    'compte': 'compte_num', 'libelle': 'ecriture_lib', 'date': 'ecriture_date'
+                    'journalcode': 'journal_code',
+                    'ecriturenum': 'ecriture_num',
+                    'ecrituredate': 'ecriture_date',
+                    'comptenum': 'compte_num',
+                    'ecriturelib': 'ecriture_lib',
+                    'debit': 'debit',
+                    'credit': 'credit',
+                    'compte': 'compte_num',
+                    'libelle': 'ecriture_lib',
+                    'date': 'ecriture_date'
                 }
                 df.rename(columns=mapping, inplace=True)
-                
-                # Vérification colonne obligatoire manquante
-                required = ['journal_code', 'ecriture_date', 'compte_num', 'ecriture_lib', 'debit', 'credit']
-                for col in required:
-                    if col not in df.columns: df[col] = '' if col not in ['debit', 'credit'] else 0
 
-                # Lancement de l'analyse FEC (Benford, Tracfin, etc.)
+                if 'debit' not in df.columns:
+                    df['debit'] = 0
+                if 'credit' not in df.columns:
+                    df['credit'] = 0
+
                 file_anomalies = engine.executer_analyse_v4(df)
 
-        # C. MARQUAGE ET AJOUT AU TOTAL
+        # =======================
+        # AJOUT INFO SI AUCUNE ANOMALIE
+        # =======================
+        if not file_anomalies:
+            file_anomalies.append({
+                "cycle": "IMPORT",
+                "type_anomalie": "INFO",
+                "niveau_criticite": "FAIBLE",
+                "score_ml": 0,
+                "montant": 0,
+                "description": "Fichier analysé : aucune anomalie détectée."
+            })
+
+        # =======================
+        # AJOUT DANS LISTE GLOBALE (SANS ÉCRASER)
+        # =======================
         for anom in file_anomalies:
             anom['mission_id'] = mission_id
-            # On ajoute le nom du fichier au début de la description pour s'y retrouver
-            anom['description'] = f"📄 [{file.filename}] {anom.get('description', '')}"
+            anom['description'] = f"[{file.filename}] {anom.get('description','')}"
             total_anomalies.append(anom)
 
-    # 3. SAUVEGARDE EN BASE
+    # =======================
+    # SAUVEGARDE EN BASE
+    # =======================
     if total_anomalies:
-        # On insère par paquets de 50 pour éviter de bloquer
         batch_size = 50
         for i in range(0, len(total_anomalies), batch_size):
-            try:
-                batch = total_anomalies[i:i + batch_size]
-                supabase.table("anomalies").insert(batch).execute()
-            except Exception as e:
-                print(f"Erreur insertion batch: {e}")
-            
+            batch = total_anomalies[i:i + batch_size]
+            supabase.table("anomalies").insert(batch).execute()
+
         supabase.table("missions").update({"statut": "Analysée"}).eq("id", mission_id).execute()
 
     return {"anomalies_detectees": len(total_anomalies)}
@@ -301,29 +344,65 @@ async def export_report(mission_id: str, format: str = "pdf"):
         return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.pdf"})
 
     # --- FORMAT EXCEL ---
+   # --- FORMAT EXCEL ---
     elif format == "xlsx":
-        buffer = io.BytesIO()
-        # On prépare les données proprement
-        data_export = []
-        for a in anomalies:
-            data_export.append({
-                "Niveau": a.get('niveau_criticite'),
-                "Cycle": a.get('cycle'),
-                "Type": a.get('type_anomalie'),
-                "Description": a.get('description'),
-                "Montant": a.get('montant', 0),
-                "Score ML": a.get('score_ml')
-            })
+        try:
+            buffer = io.BytesIO()
             
-        df = pd.DataFrame(data_export)
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df.to_excel(writer, sheet_name='Anomalies', index=False)
-            # Auto-ajustement des colonnes (optionnel mais sympa)
-            worksheet = writer.sheets['Anomalies']
-            worksheet.set_column('D:D', 50) # Largeur description
+            # Préparation des données
+            data_export = []
+            for a in anomalies:
+                data_export.append({
+                    "Niveau": a.get('niveau_criticite', 'INFO'),
+                    "Cycle": a.get('cycle', 'N/A'),
+                    "Type": a.get('type_anomalie', 'Inconnu'),
+                    "Description": a.get('description', ''),
+                    "Montant": float(a.get('montant', 0) or 0), # Sécurité si None
+                    "Score ML": a.get('score_ml', 0)
+                })
+
+            # Création du DataFrame
+            df = pd.DataFrame(data_export)
+
+            # Si le DataFrame est vide, on crée quand même les colonnes pour ne pas planter
+            if df.empty:
+                df = pd.DataFrame(columns=["Niveau", "Cycle", "Type", "Description", "Montant", "Score ML"])
+
+            # Écriture avec XlsxWriter
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, sheet_name='Anomalies', index=False)
+                
+                # Mise en forme (Largeur des colonnes)
+                workbook  = writer.book
+                worksheet = writer.sheets['Anomalies']
+                
+                # Format monétaire
+                money_fmt = workbook.add_format({'num_format': '#,##0.00 €'})
+                
+                # Application des largeurs
+                worksheet.set_column('A:A', 15) # Niveau
+                worksheet.set_column('B:C', 20) # Cycle & Type
+                worksheet.set_column('D:D', 60) # Description (Large)
+                worksheet.set_column('E:E', 15, money_fmt) # Montant
+                worksheet.set_column('F:F', 10) # Score
+
+            buffer.seek(0)
             
-        buffer.seek(0)
-        return StreamingResponse(buffer, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.xlsx"})
+            headers = {
+                "Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.xlsx"
+            }
+            return StreamingResponse(
+                buffer, 
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                headers=headers
+            )
+
+        except Exception as e:
+            print(f"ERREUR EXPORT EXCEL : {str(e)}") # Affiche l'erreur dans le terminal
+            raise HTTPException(status_code=500, detail=f"Erreur création Excel: {str(e)}")
+        
+
+        
 
     # --- FORMAT TXT (Par défaut) ---
     else:
@@ -353,3 +432,96 @@ async def export_report(mission_id: str, format: str = "pdf"):
 @app.get("/")
 def read_root():
     return {"status": "ML-AUDIT PRO API is running", "version": "4.0"}        
+
+# ---------------------------------------------------------
+# AJOUT : ROUTE CIRCULARISATION (Marilyne - Demande 6 & 9)
+# ---------------------------------------------------------
+@app.post("/circularisation/{mission_id}")
+async def generate_circularisation(mission_id: str, file: UploadFile = File(...), type_circu: str = "CLIENT"):
+    """
+    1. Lit une Balance Auxiliaire (Excel/PDF).
+    2. Extrait les tiers et leurs soldes.
+    3. Génère le texte du mail de confirmation pour chaque tiers.
+    """
+    contents = await file.read()
+    filename = file.filename.lower()
+    
+    # On instancie le moteur
+    engine = AuditEngine(mission_id)
+    
+    # 1. Extraction du texte/données via le moteur existant
+    texte_brut = engine.lire_fichier_universel(contents, filename)
+    
+    # 2. Demande à l'IA d'extraire proprement les données Tiers + Soldes
+    # On utilise une nouvelle fonction dans ml_engine pour structurer ça
+    tiers_data = await engine.extraire_tiers_pour_circularisation(texte_brut, type_circu)
+    
+    # 3. On formate la réponse pour le Frontend
+    resultats = []
+    for tiers in tiers_data:
+        montant = tiers.get('montant', 0)
+        nom = tiers.get('nom', 'Inconnu')
+        
+        # Modèle de mail standard audit (ISA 505)
+        mail_body = f"""
+Objet : Demande de confirmation de solde - Audit {datetime.now().year}
+
+Madame, Monsieur,
+
+Dans le cadre de notre audit des comptes de notre client, nous vous saurions gré de bien vouloir nous confirmer le solde de votre compte dans ses livres arrêtés au 31/12.
+
+Sauf erreur ou omission de notre part, ce solde s'élève à : {montant} EUR en notre faveur.
+
+Veuillez nous retourner ce courrier signé en cas d'accord, ou nous détailler les écarts éventuels.
+
+Cordialement,
+Le Commissaire aux Comptes.
+"""
+        resultats.append({
+            "nom": nom,
+            "solde": montant,
+            "email_estime": tiers.get('email', ''), # L'IA essaiera de trouver un mail si présent
+            "template_mail": mail_body
+        })
+        
+    return {"tiers": resultats}
+
+
+
+class EmailRequest(BaseModel):
+    destinataire: str
+    sujet: str
+    corps: str
+
+@app.post("/send-email")
+async def send_email_api(req: EmailRequest):
+    # --- CONFIGURATION SMTP (A MODIFIER AVEC TES INFOS) ---
+    # Pour Gmail : utiliser un "Mot de passe d'application"
+    SMTP_SERVER = "smtp.gmail.com" 
+    SMTP_PORT = 587
+    SENDER_EMAIL = os.getenv("EMAIL_USER")
+    SENDER_PASSWORD = os.getenv("EMAIL_PASS")
+
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = req.destinataire
+        msg['Subject'] = req.sujet
+
+        # On attache le corps en HTML
+        msg.attach(MIMEText(req.corps, 'html'))
+
+        # Connexion sécurisée
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(SENDER_EMAIL, req.destinataire, text)
+        server.quit()
+        
+        return {"success": True, "message": "Email envoyé avec succès !"}
+
+    except Exception as e:
+        print(f"Erreur envoi mail: {e}")
+        return {"success": False, "message": f"Erreur technique : {str(e)}"}

@@ -3,6 +3,7 @@ import {
     Folder, Upload, Search, BarChart3, AlertTriangle, 
     FileText, Scale, Settings, HelpCircle 
 } from 'lucide-react';
+import { Mail } from 'lucide-react'; 
 
 export const MENU_STRUCTURE = [
   {
@@ -96,5 +97,15 @@ export const MENU_STRUCTURE = [
       { id: 'docs', label: 'Documentation', active: true },
       { id: 'about', label: 'À propos', active: true }
     ]
-  }
+  },
+
+  {
+    id: 'section_circu', // NOUVELLE SECTION
+    title: "CIRCULARISATION",
+    icon: Mail,
+    items: [
+      { id: 'circu_clients', label: 'Confirmation Clients', active: true },
+      { id: 'circu_fournisseurs', label: 'Confirmation Fournisseurs', active: true }
+    ]
+  },
 ];

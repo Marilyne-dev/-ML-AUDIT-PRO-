@@ -143,41 +143,143 @@ class AuditEngine:
 
         return anomalies
 
+    # --- FONCTION MODIFIÉE (REMPLACE L'ANCIENNE) ---
     def analyser_document_pdf_excel(self, texte):
-        """Demande à l'IA d'analyser un texte brut (PDF/Excel)"""
+        """Analyse textuelle améliorée pour PDF (Force le classement par Cycle)"""
+        
+        # Nettoyage basique des caractères bizarres du PDF
+        import re
+        texte_propre = re.sub(r'[^\x20-\x7E\nÀ-ÿ€]', '', texte)
+
         prompt = f"""
-        Tu es auditeur comptable. Analyse ce document brut.
-        Cherche des anomalies : dates incohérentes, montants suspects, mentions manquantes.
+        Tu es auditeur comptable senior. Analyse ce texte extrait d'un document (PDF/Scan).
+        Le texte peut contenir des erreurs de lecture (OCR), ignore les caractères bizarres.
+        
+        CHERCHE SPECIFIQUEMENT :
+        1. Des incohérences de dates.
+        2. Des montants importants ou suspects.
+        3. Des mentions de litiges, redressements ou risques.
 
-        DOCUMENT :
-        {texte[:15000]} 
+        TEXTE :
+        {texte_propre[:20000]} 
 
-        Réponds UNIQUEMENT en JSON :
+        RÈGLE IMPORTANTE - CLASSEMENT PAR CYCLE : 
+        Tu DOIS classer chaque anomalie dans un de ces CYCLES précis (pour qu'elles s'affichent dans le rapport) : 
+        - IMMO_CORPORELLES
+        - STOCKS
+        - CLIENTS
+        - TRESORERIE
+        - CAPITAUX_PROPRES
+        - EMPRUNTS
+        - FOURNISSEURS
+        - DETTES_FISCALES
+        - CHARGES_PERSONNEL
+        - RESULTAT (pour charges/produits)
+
+        Si tu ne sais pas, mets "OPERATIONS_DIVERSES".
+
+        Réponds UNIQUEMENT en JSON Array :
         [
             {{
-                "cycle": "DOCUMENT_EXTERNE",
+                "cycle": "TRESORERIE",
                 "type_anomalie": "DOCUMENTAIRE",
                 "niveau_criticite": "ELEVE",
                 "score_ml": 80,
-                "montant": 0,
-                "description": "Ton analyse ici..."
+                "montant": 15000,
+                "description": "Explication claire de ce qui cloche..."
             }}
         ]
         Si rien à signaler, renvoie [].
         """
         try:
             message = self.claude_client.messages.create(
-                model="claude-3-haiku-20240307", 
-                max_tokens=2000,
-                temperature=0,
+                model="claude-3-haiku-20240307", max_tokens=2000, temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )
             content = message.content[0].text
             start = content.find('[')
             end = content.rfind(']') + 1
             return json.loads(content[start:end])
+        except: return []
+
+    # --- NOUVELLE FONCTION A AJOUTER ---
+    def convertir_excel_en_df(self, contents):
+        """Tente de convertir un Excel en DataFrame structuré pour l'analyse chiffrée"""
+        try:
+            # On lit le Excel avec Pandas direct
+            df = pd.read_excel(BytesIO(contents))
+            
+            # Normalisation des colonnes (minuscules + strip)
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            
+            # Dictionnaire de synonymes pour retrouver les colonnes FEC
+            mapping = {
+                'compte': 'compte_num', 'num_compte': 'compte_num', 'n° compte': 'compte_num',
+                'libellé': 'ecriture_lib', 'libelle': 'ecriture_lib', 'label': 'ecriture_lib',
+                'débit': 'debit', 'debit': 'debit',
+                'crédit': 'credit', 'credit': 'credit',
+                'journal': 'journal_code', 'code': 'journal_code',
+                'date': 'ecriture_date'
+            }
+            df.rename(columns=mapping, inplace=True)
+            
+            # Si on a au moins Débit ou Crédit, on considère que c'est exploitable en chiffres
+            if 'debit' in df.columns or 'credit' in df.columns:
+                # Ajout des colonnes manquantes par défaut pour éviter les bugs
+                for col in ['debit', 'credit']: 
+                    if col not in df.columns: df[col] = 0
+                if 'compte_num' not in df.columns: df['compte_num'] = '000000'
+                if 'ecriture_lib' not in df.columns: df['ecriture_lib'] = 'Import Excel'
+                if 'journal_code' not in df.columns: df['journal_code'] = 'OD'
+                
+                return df
+            return None
         except:
+            return None
+
+        # AJOUT POUR LA CIRCULARISATION
+    async def extraire_tiers_pour_circularisation(self, texte_donnees, type_tiers):
+        prompt = f"""
+        Tu es un assistant audit expert. Voici le contenu brut d'une Balance Auxiliaire {type_tiers}.
+        
+        CONTENU DU FICHIER :
+        {texte_donnees[:20000]} 
+
+        TA MISSION :
+        1. Identifie chaque Tiers (Nom de l'entreprise/client).
+        2. Identifie le Solde comptable associé.
+        3. Si tu trouves une adresse email, prends-la, sinon laisse vide.
+        
+        FORMAT DE RÉPONSE ATTENDU (JSON UNIQUEMENT, ARRAY) :
+        [
+            {{ "nom": "CLIENT SARL", "montant": "1500.00", "email": "contact@client.com" }},
+            {{ "nom": "DUBOSC SA", "montant": "4200.50", "email": "" }}
+        ]
+        
+        Ne renvoie que du JSON valide. Ignore les totaux généraux, prends les lignes individuelles.
+        """
+        try:
+            if not self.claude_client: return []
+            
+            # OPTIMISATION : On utilise asyncio pour ne pas bloquer le serveur
+            response = await asyncio.to_thread(
+                lambda: self.claude_client.messages.create(
+                    model="claude-3-haiku-20240307", 
+                    max_tokens=3000,
+                    temperature=0,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+            )
+            content = response.content[0].text
+            
+            # Parsing JSON
+            start = content.find('[')
+            end = content.rfind(']') + 1
+            return json.loads(content[start:end])
+        except Exception as e:
+            print(f"Erreur extraction tiers: {e}")
             return []
+
 
     def _ask_claude_expert(self, json_data):
         prompt = f"""

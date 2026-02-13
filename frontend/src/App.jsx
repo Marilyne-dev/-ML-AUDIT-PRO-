@@ -5,7 +5,7 @@ import {
   LayoutDashboard, AlertTriangle, LogOut, Download, Briefcase, 
   PlusCircle, ShieldCheck, Menu, CheckCircle, Eye, 
   Folder, Upload, Search, BarChart3, Settings, HelpCircle, Scale,
-  ChevronDown, ChevronRight, Grid, Circle, Lock
+  ChevronDown, ChevronRight, Grid, Circle, Lock,FileText
 } from 'lucide-react';
 
 // --- IMPORT DES MODULES EXTERNES (Fichiers que nous avons créés) ---
@@ -13,6 +13,7 @@ import { MENU_STRUCTURE } from './menuConfig';
 import ConfigurationView from './ConfigurationView';
 import HelpView from './HelpView';
 import ChatBot from './ChatBot';
+import CircularisationView from './CircularisationView';
 
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
   ? "http://127.0.0.1:8000"
@@ -129,7 +130,7 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
     });
 
     // Gestion du menu téléchargement
-    const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+     const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
     return (
         <div className="animate-in fade-in duration-300 max-w-6xl mx-auto" onClick={() => setShowDownloadMenu(false)}>
@@ -142,10 +143,10 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
                 </div>
                 
                 <div className="flex gap-2 relative">
-                    <div className="relative" onClick={e => e.stopPropagation()}>
+                     <div className="relative" onClick={e => e.stopPropagation()}>
                         <button 
                             onClick={() => setShowDownloadMenu(!showDownloadMenu)} 
-                            className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 flex items-center gap-2 shadow-lg"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 flex items-center gap-2 shadow-lg transition"
                         >
                             <Download size={14}/> TÉLÉCHARGER <ChevronDown size={14}/>
                         </button>
@@ -360,6 +361,19 @@ function App() {
             setView('LIST');
         }
     }
+
+    // ... dans handleMenuItemClick(item) ...
+
+        // Ajoute cette condition :
+        if (item.id === 'circu_clients' || item.id === 'circu_fournisseurs') {
+            if (selectedMission) {
+                setView('CIRCULARISATION');
+            } else {
+                alert("Veuillez sélectionner un dossier d'abord.");
+                setView('LIST');
+            }
+        }
+        // ... suite des conditions existantes
     
     if (window.innerWidth < 1024) setIsMenuOpen(false);
   };
@@ -472,6 +486,7 @@ function App() {
         {view === 'CONFIG' && <ConfigurationView />}
         {view === 'HELP' && <HelpView />}
         {view === 'SOON' && <ComingSoon />}
+        {view === 'CIRCULARISATION' && selectedMission && <CircularisationView mission={selectedMission} />}
 
       </div>
 
