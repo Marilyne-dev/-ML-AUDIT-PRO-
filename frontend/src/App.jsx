@@ -116,6 +116,7 @@ const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) 
 );
 
 // 4. RAPPORT DÉTAILLÉ
+// 4. RAPPORT DÉTAILLÉ (AVEC SEUILS)
 const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) => {
     // Logique de filtrage des 21 cycles
     const filteredAnomalies = anomalies.filter(a => {
@@ -129,11 +130,11 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
         return true;
     });
 
-    // Gestion du menu téléchargement
-     const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+    const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
     return (
         <div className="animate-in fade-in duration-300 max-w-6xl mx-auto" onClick={() => setShowDownloadMenu(false)}>
+            {/* EN-TÊTE AVEC BOUTONS */}
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h3 className="text-2xl font-black italic">Rapport : {mission.raison_sociale}</h3>
@@ -143,7 +144,7 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
                 </div>
                 
                 <div className="flex gap-2 relative">
-                     <div className="relative" onClick={e => e.stopPropagation()}>
+                    <div className="relative" onClick={e => e.stopPropagation()}>
                         <button 
                             onClick={() => setShowDownloadMenu(!showDownloadMenu)} 
                             className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 flex items-center gap-2 shadow-lg transition"
@@ -169,6 +170,27 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
                 </div>
             </div>
 
+            {/* --- NOUVEAU : AFFICHAGE DES SEUILS ISA 320 --- */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Total Bilan</p>
+                    <p className="text-lg font-black text-slate-800">{mission.total_bilan?.toLocaleString()} €</p>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-blue-400 font-bold uppercase mb-1">Seuil Signification</p>
+                    <p className="text-lg font-black text-blue-700">{mission.seuil_signification?.toLocaleString()} €</p>
+                </div>
+                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 shadow-sm">
+                    <p className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Seuil Planification (75%)</p>
+                    <p className="text-lg font-black text-indigo-700">{mission.seuil_planification?.toLocaleString()} €</p>
+                </div>
+                <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 shadow-sm">
+                    <p className="text-[10px] text-orange-400 font-bold uppercase mb-1">Seuil Remontée (5%)</p>
+                    <p className="text-lg font-black text-orange-700">{mission.seuil_remontee?.toLocaleString()} €</p>
+                </div>
+            </div>
+
+            {/* BANDEAU STATUT */}
             <div className={`p-6 rounded-[20px] mb-6 text-white shadow-lg flex items-center gap-4 ${anomalies.length > 0 ? 'bg-red-500' : 'bg-green-500'}`}>
                 <div className="bg-white/20 p-3 rounded-full">{anomalies.length > 0 ? <AlertTriangle size={30}/> : <CheckCircle size={30}/>}</div>
                 <div>
@@ -177,6 +199,7 @@ const ReportView = ({ mission, anomalies, filterCategory, onDownload, onBack }) 
                 </div>
             </div>
 
+            {/* TABLEAU DES RÉSULTATS */}
             {filteredAnomalies.length > 0 ? (
                 <div className="bg-white rounded-[20px] shadow border border-slate-100 overflow-hidden">
                     <table className="w-full text-left">
