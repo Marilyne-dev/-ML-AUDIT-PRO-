@@ -19,13 +19,12 @@ export const MENU_STRUCTURE = [
   },
   {
     id: 'section_2',
-    title: "2. IMPORT DONNÉES",
+    title: "2. COLLECTE DES DONNÉES",
     icon: Upload,
     items: [
-      { id: 'import_excel', label: 'Import Excel (.xlsx)', active: true },
-      { id: 'import_fec', label: 'Import FEC (.txt/csv)', active: true },
-      { id: 'import_balance', label: 'Import Balance', active: true },
-      { id: 'check_integrity', label: 'Contrôles Intégrité', active: true }
+      { id: 'import_fec', label: 'Importation FEC (Comptabilité)', active: true },
+      { id: 'import_docs', label: 'Import Multi-fichiers (PDF, Word, Excel)', active: true },
+      { id: 'check_integrity', label: 'Contrôle Intégrité & Balance', active: true } 
     ]
   },
   {
@@ -86,7 +85,7 @@ export const MENU_STRUCTURE = [
     icon: Settings,
     items: [
       { id: 'config_ml', label: 'Paramètres ML', active: true },
-      { id: 'config_seuils', label: 'Seuils d\'alerte', active: true }
+      
     ]
   },
   {
@@ -94,7 +93,7 @@ export const MENU_STRUCTURE = [
     title: "9. AIDE",
     icon: HelpCircle,
     items: [
-      { id: 'docs', label: 'Documentation', active: true },
+      
       { id: 'about', label: 'À propos', active: true }
     ]
   },
@@ -105,7 +104,7 @@ export const MENU_STRUCTURE = [
     icon: Mail,
     items: [
       { id: 'circu_clients', label: 'Confirmation Clients', active: true },
-      { id: 'circu_fournisseurs', label: 'Confirmation Fournisseurs', active: true }
+      
     ]
   },
 ];

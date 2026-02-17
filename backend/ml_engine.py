@@ -44,7 +44,7 @@ class AuditEngine:
             print("⚠️ ATTENTION: Clé API Anthropic manquante !")
 
     def lire_fichier_universel(self, contents, filename):
-        """Lit PDF, Excel ou TXT/CSV et renvoie du texte"""
+        """Lit PDF, Excel, Word ou TXT/CSV et renvoie du texte"""
         try:
             if filename.endswith('.pdf'):
                 doc = fitz.open(stream=contents, filetype="pdf")
@@ -53,24 +53,30 @@ class AuditEngine:
                     texte += page.get_text() + "\n"
                 return texte
 
-            elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+            elif filename.endswith(('.xlsx', '.xls')):
                 wb = openpyxl.load_workbook(filename=BytesIO(contents), data_only=True)
                 texte = ""
                 for sheet in wb.sheetnames:
                     ws = wb[sheet]
                     for row in ws.iter_rows(values_only=True):
-                        # On concatène les cellules en texte
                         line = " ".join([str(c) for c in row if c is not None])
                         texte += line + "\n"
                 return texte
 
-            else:
-                # Cas TXT ou CSV
-                return contents.decode("utf-8", errors="ignore")
+            # --- AJOUT DU SUPPORT WORD ---
+            elif filename.endswith('.docx'):
+                from docx import Document
+                doc = Document(BytesIO(contents))
+                return "\n".join([para.text for para in doc.paragraphs])
+            # -----------------------------
 
+            else:
+                return contents.decode("utf-8", errors="ignore")
         except Exception as e:
             return f"ERREUR LECTURE FICHIER: {str(e)}"
+        
 
+        
     def _determiner_cycle(self, compte_num):
         """Assigne un des 21 cycles d'audit"""
         c = str(compte_num).strip()
@@ -142,65 +148,95 @@ class AuditEngine:
             print(f"Erreur IA : {e}")
 
         return anomalies
+    
+
 
     # --- FONCTION MODIFIÉE (REMPLACE L'ANCIENNE) ---
-    def analyser_document_pdf_excel(self, texte):
-        """Analyse textuelle améliorée pour PDF (Force le classement par Cycle)"""
-        
-        # Nettoyage basique des caractères bizarres du PDF
+    def analyser_document_pdf_excel(self, texte, is_sigle=False):
+        """Analyse IA avec détection d'écarts (SIGLES)"""
         import re
+        import json
+
+        # Nettoyage texte
         texte_propre = re.sub(r'[^\x20-\x7E\nÀ-ÿ€]', '', texte)
 
-        prompt = f"""
-        Tu es auditeur comptable senior. Analyse ce texte extrait d'un document (PDF/Scan).
-        Le texte peut contenir des erreurs de lecture (OCR), ignore les caractères bizarres.
-        
-        CHERCHE SPECIFIQUEMENT :
-        1. Des incohérences de dates.
-        2. Des montants importants ou suspects.
-        3. Des mentions de litiges, redressements ou risques.
+        # Consigne par défaut
+        consigne_audit = "Cherche des incohérences de dates, montants suspects, mentions de litiges."
 
-        TEXTE :
-        {texte_propre[:20000]} 
+        # Consigne spéciale SIGLES
+        if is_sigle:
+            consigne_audit = f"""
+    FOCUS AUDIT (SIGLES) :
 
-        RÈGLE IMPORTANTE - CLASSEMENT PAR CYCLE : 
-        Tu DOIS classer chaque anomalie dans un de ces CYCLES précis (pour qu'elles s'affichent dans le rapport) : 
-        - IMMO_CORPORELLES
-        - STOCKS
-        - CLIENTS
-        - TRESORERIE
-        - CAPITAUX_PROPRES
-        - EMPRUNTS
-        - FOURNISSEURS
-        - DETTES_FISCALES
-        - CHARGES_PERSONNEL
-        - RESULTAT (pour charges/produits)
+    1. Analyse ce document comme un bilan (Actif ou Passif).
+    2. Identifie les variations atypiques entre N et N-1.
+    3. Vérifie la cohérence des rubriques (ex: amortissements vs immo).
+    4. Si tu détectes un écart de conversion ou de solde, signale-le comme CRITIQUE.
 
-        Si tu ne sais pas, mets "OPERATIONS_DIVERSES".
+    TEXTE :
+    {texte_propre[:20000]}
 
-        Réponds UNIQUEMENT en JSON Array :
-        [
-            {{
-                "cycle": "TRESORERIE",
-                "type_anomalie": "DOCUMENTAIRE",
-                "niveau_criticite": "ELEVE",
-                "score_ml": 80,
-                "montant": 15000,
-                "description": "Explication claire de ce qui cloche..."
-            }}
-        ]
-        Si rien à signaler, renvoie [].
-        """
+    RÈGLE IMPORTANTE - CLASSEMENT PAR CYCLE :
+
+    Tu DOIS classer chaque anomalie dans un de ces CYCLES précis :
+
+    - IMMO_CORPORELLES
+    - STOCKS
+    - CLIENTS
+    - TRESORERIE
+    - CAPITAUX_PROPRES
+    - EMPRUNTS
+    - FOURNISSEURS
+    - DETTES_FISCALES
+    - CHARGES_PERSONNEL
+    - RESULTAT
+
+    Si tu ne sais pas, mets "OPERATIONS_DIVERSES".
+
+    Réponds UNIQUEMENT en JSON Array :
+
+    [
+    {{
+        "cycle": "TRESORERIE",
+        "type_anomalie": "DOCUMENTAIRE",
+        "niveau_criticite": "ELEVE",
+        "score_ml": 80,
+        "montant": 15000,
+        "description": "Explication claire..."
+    }}
+    ]
+
+    Si rien à signaler, renvoie [].
+    """
+
+        prompt = consigne_audit
+
         try:
             message = self.claude_client.messages.create(
-                model="claude-3-haiku-20240307", max_tokens=2000, temperature=0,
+                model="claude-3-haiku-20240307",
+                max_tokens=2000,
+                temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )
+
             content = message.content[0].text
+
+            # Extraction sécurisée du JSON
             start = content.find('[')
             end = content.rfind(']') + 1
-            return json.loads(content[start:end])
-        except: return []
+
+            if start == -1 or end == 0:
+                return []
+
+            json_text = content[start:end]
+            return json.loads(json_text)
+
+        except Exception as e:
+            print("Erreur analyse IA :", e)
+            return []
+
+
+
 
     # --- NOUVELLE FONCTION A AJOUTER ---
     def convertir_excel_en_df(self, contents):

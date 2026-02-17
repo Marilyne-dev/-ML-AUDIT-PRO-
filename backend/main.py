@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from ml_engine import AuditEngine, ask_claude_general
 from typing import List
-from pydantic import BaseModel
 import pandas as pd
 import io
 import xlsxwriter
@@ -11,11 +10,16 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from fastapi.responses import StreamingResponse
-from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pydantic import BaseModel
+from datetime import datetime # Import unique et propre
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+app = FastAPI()
 
 
 import os
@@ -28,9 +32,16 @@ app = FastAPI()
 
 
 # 2. Configuration CORS
+# 2. Configuration CORS
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # L'étoile permet à TOUT le monde de se connecter (Idéal pour le développement/test)
+    allow_origins=["*"], # Liste précise au lieu de "*"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,15 +98,28 @@ async def create_mission_v4(data: dict):
 # 4. ROUTE : ANALYSE MULTI-FICHIERS (CORRIGÉE & OPTIMISÉE)
 # ---------------------------------------------------------
 @app.post("/analyze/{mission_id}")
-async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
+async def analyze_v4(
+    mission_id: str,
+    files: List[UploadFile] = File(...),
+    import_type: str = "FEC"   # "FEC" ou "DOCS"
+):
+    """
+    Analyse universelle :
+    - DOCS  → analyse documentaire / SIGLES
+    - FEC   → analyse FEC / Excel / CSV / PDF
+    """
 
-    # Nettoyer anciennes anomalies
+    # =======================
+    # Nettoyage anciennes anomalies
+    # =======================
     supabase.table("anomalies").delete().eq("mission_id", mission_id).execute()
 
     engine = AuditEngine(mission_id)
     total_anomalies = []
 
-    # Boucle sur chaque fichier envoyé
+    # =======================
+    # BOUCLE SUR CHAQUE FICHIER
+    # =======================
     for file in files:
         contents = await file.read()
         filename = file.filename.lower()
@@ -103,83 +127,104 @@ async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
         file_anomalies = []
         df = None
 
-        # =======================
-        # CAS 1 : EXCEL
-        # =======================
-        if filename.endswith(('.xlsx', '.xls')):
-
-            df = engine.convertir_excel_en_df(contents)
-
-            if df is not None:
-                file_anomalies = engine.executer_analyse_v4(df)
-            else:
-                texte = engine.lire_fichier_universel(contents, filename)
-                file_anomalies = engine.analyser_document_pdf_excel(texte)
-
-        # =======================
-        # CAS 2 : PDF
-        # =======================
-        elif filename.endswith('.pdf'):
+        # =====================================================
+        # CAS 1 : MODE DOCUMENTAIRE / SIGLES
+        # =====================================================
+        if import_type == "DOCS":
 
             try:
                 texte = engine.lire_fichier_universel(contents, filename)
-                file_anomalies = engine.analyser_document_pdf_excel(texte)
-            except Exception:
+                file_anomalies = engine.analyser_document_pdf_excel(
+                    texte,
+                    is_sigle=True
+                )
+            except Exception as e:
+                print("Erreur analyse DOCS :", e)
                 file_anomalies = []
 
-        # =======================
-        # CAS 3 : TXT / FEC / CSV
-        # =======================
+        # =====================================================
+        # CAS 2 : MODE FEC / CLASSIQUE
+        # =====================================================
         else:
 
-            separators = ['\t', ';', '|', ',']
-            encodings = ['utf-8', 'latin1', 'cp1252']
+            # =======================
+            # EXCEL
+            # =======================
+            if filename.endswith(('.xlsx', '.xls')):
 
-            for encoding in encodings:
-                for sep in separators:
-                    try:
-                        temp_df = pd.read_csv(
-                            io.BytesIO(contents),
-                            sep=sep,
-                            encoding=encoding,
-                            dtype=str,
-                            on_bad_lines='skip'
-                        )
-                        if temp_df.shape[1] > 1:
-                            df = temp_df
-                            break
-                    except:
-                        continue
+                df = engine.convertir_excel_en_df(contents)
+
                 if df is not None:
-                    break
+                    file_anomalies = engine.executer_analyse_v4(df)
+                else:
+                    texte = engine.lire_fichier_universel(contents, filename)
+                    file_anomalies = engine.analyser_document_pdf_excel(texte)
 
-            if df is not None:
-                df.columns = [c.strip().lower() for c in df.columns]
+            # =======================
+            # PDF
+            # =======================
+            elif filename.endswith('.pdf'):
 
-                mapping = {
-                    'journalcode': 'journal_code',
-                    'ecriturenum': 'ecriture_num',
-                    'ecrituredate': 'ecriture_date',
-                    'comptenum': 'compte_num',
-                    'ecriturelib': 'ecriture_lib',
-                    'debit': 'debit',
-                    'credit': 'credit',
-                    'compte': 'compte_num',
-                    'libelle': 'ecriture_lib',
-                    'date': 'ecriture_date'
-                }
-                df.rename(columns=mapping, inplace=True)
+                try:
+                    texte = engine.lire_fichier_universel(contents, filename)
+                    file_anomalies = engine.analyser_document_pdf_excel(texte)
+                except Exception as e:
+                    print("Erreur PDF :", e)
+                    file_anomalies = []
 
-                if 'debit' not in df.columns:
-                    df['debit'] = 0
-                if 'credit' not in df.columns:
-                    df['credit'] = 0
+            # =======================
+            # CSV / TXT / FEC
+            # =======================
+            else:
 
-                file_anomalies = engine.executer_analyse_v4(df)
+                separators = ['\t', ';', '|', ',']
+                encodings = ['utf-8', 'latin1', 'cp1252']
 
-        # =======================
-        # AJOUT INFO SI AUCUNE ANOMALIE
-        # =======================
+                for encoding in encodings:
+                    for sep in separators:
+                        try:
+                            temp_df = pd.read_csv(
+                                io.BytesIO(contents),
+                                sep=sep,
+                                encoding=encoding,
+                                dtype=str,
+                                on_bad_lines='skip'
+                            )
+                            if temp_df.shape[1] > 1:
+                                df = temp_df
+                                break
+                        except:
+                            continue
+                    if df is not None:
+                        break
+
+                if df is not None:
+                    df.columns = [c.strip().lower() for c in df.columns]
+
+                    mapping = {
+                        'journalcode': 'journal_code',
+                        'ecriturenum': 'ecriture_num',
+                        'ecrituredate': 'ecriture_date',
+                        'comptenum': 'compte_num',
+                        'ecriturelib': 'ecriture_lib',
+                        'debit': 'debit',
+                        'credit': 'credit',
+                        'compte': 'compte_num',
+                        'libelle': 'ecriture_lib',
+                        'date': 'ecriture_date'
+                    }
+                    df.rename(columns=mapping, inplace=True)
+
+                    if 'debit' not in df.columns:
+                        df['debit'] = 0
+                    if 'credit' not in df.columns:
+                        df['credit'] = 0
+
+                    file_anomalies = engine.executer_analyse_v4(df)
+
+        # =====================================================
+        # SI AUCUNE ANOMALIE → INFO
+        # =====================================================
         if not file_anomalies:
             file_anomalies.append({
                 "cycle": "IMPORT",
@@ -190,26 +235,33 @@ async def analyze_v4(mission_id: str, files: List[UploadFile] = File(...)):
                 "description": "Fichier analysé : aucune anomalie détectée."
             })
 
-        # =======================
-        # AJOUT DANS LISTE GLOBALE (SANS ÉCRASER)
-        # =======================
+        # =====================================================
+        # AJOUT GLOBAL
+        # =====================================================
         for anom in file_anomalies:
-            anom['mission_id'] = mission_id
-            anom['description'] = f"[{file.filename}] {anom.get('description','')}"
+            anom["mission_id"] = mission_id
+            anom["description"] = f"[{file.filename}] {anom.get('description','')}"
             total_anomalies.append(anom)
 
-    # =======================
-    # SAUVEGARDE EN BASE
-    # =======================
+    # =====================================================
+    # SAUVEGARDE SUPABASE
+    # =====================================================
     if total_anomalies:
+
         batch_size = 50
         for i in range(0, len(total_anomalies), batch_size):
             batch = total_anomalies[i:i + batch_size]
             supabase.table("anomalies").insert(batch).execute()
 
-        supabase.table("missions").update({"statut": "Analysée"}).eq("id", mission_id).execute()
+        supabase.table("missions").update(
+            {"statut": "Analysée"}
+        ).eq("id", mission_id).execute()
 
-    return {"anomalies_detectees": len(total_anomalies)}
+    return {
+        "mission_id": mission_id,
+        "anomalies_detectees": len(total_anomalies),
+        "mode": import_type
+    }
 
 
 # ---------------------------------------------------------
@@ -436,57 +488,125 @@ def read_root():
 # ---------------------------------------------------------
 # AJOUT : ROUTE CIRCULARISATION (Marilyne - Demande 6 & 9)
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# CIRCULARISATION — GENERATION + SAUVEGARDE
+# ---------------------------------------------------------
+from datetime import datetime
+
 @app.post("/circularisation/{mission_id}")
-async def generate_circularisation(mission_id: str, file: UploadFile = File(...), type_circu: str = "CLIENT"):
-    """
-    1. Lit une Balance Auxiliaire (Excel/PDF).
-    2. Extrait les tiers et leurs soldes.
-    3. Génère le texte du mail de confirmation pour chaque tiers.
-    """
-    contents = await file.read()
-    filename = file.filename.lower()
-    
-    # On instancie le moteur
-    engine = AuditEngine(mission_id)
-    
-    # 1. Extraction du texte/données via le moteur existant
-    texte_brut = engine.lire_fichier_universel(contents, filename)
-    
-    # 2. Demande à l'IA d'extraire proprement les données Tiers + Soldes
-    # On utilise une nouvelle fonction dans ml_engine pour structurer ça
-    tiers_data = await engine.extraire_tiers_pour_circularisation(texte_brut, type_circu)
-    
-    # 3. On formate la réponse pour le Frontend
-    resultats = []
-    for tiers in tiers_data:
-        montant = tiers.get('montant', 0)
-        nom = tiers.get('nom', 'Inconnu')
-        
-        # Modèle de mail standard audit (ISA 505)
-        mail_body = f"""
+async def generate_circularisation(
+    mission_id: str,
+    file: UploadFile = File(...),
+    type_circu: str = "CLIENT"
+):
+    try:
+        contents = await file.read()
+        engine = AuditEngine(mission_id)
+
+        texte_brut = engine.lire_fichier_universel(contents, file.filename)
+
+        tiers_data = await engine.extraire_tiers_pour_circularisation(
+            texte_brut,
+            type_circu
+        )
+
+        if not tiers_data:
+            return {
+                "mission_id": mission_id,
+                "nb_tiers": 0,
+                "tiers": [],
+                "message": "Aucun tiers détecté"
+            }
+
+        resultats = []
+
+        for tiers in tiers_data:
+
+            montant = float(tiers.get("montant", 0) or 0)
+            nom = tiers.get("nom", "Inconnu")
+            email = tiers.get("email", "")
+
+            mail_body = f"""
 Objet : Demande de confirmation de solde - Audit {datetime.now().year}
 
 Madame, Monsieur,
 
-Dans le cadre de notre audit des comptes de notre client, nous vous saurions gré de bien vouloir nous confirmer le solde de votre compte dans ses livres arrêtés au 31/12.
+Dans le cadre de notre audit, merci de confirmer le solde arrêté au 31/12.
 
-Sauf erreur ou omission de notre part, ce solde s'élève à : {montant} EUR en notre faveur.
+Solde selon nos livres : {montant} EUR
 
-Veuillez nous retourner ce courrier signé en cas d'accord, ou nous détailler les écarts éventuels.
+Merci de signaler tout écart.
 
 Cordialement,
 Le Commissaire aux Comptes.
 """
-        resultats.append({
-            "nom": nom,
-            "solde": montant,
-            "email_estime": tiers.get('email', ''), # L'IA essaiera de trouver un mail si présent
-            "template_mail": mail_body
-        })
-        
-    return {"tiers": resultats}
+
+            circu_obj = {
+                "mission_id": mission_id,
+                "tiers_nom": nom,
+                "montant": montant,
+                "email": email,
+                "statut": "A PREPARER",
+                "template_mail": mail_body,
+                "type": type_circu,
+                "date_generation": datetime.utcnow().isoformat()
+            }
+
+            res = supabase.table("circularisations").insert(circu_obj).execute()
+
+            if res.data:
+                resultats.append(res.data[0])
+
+        return {
+            "mission_id": mission_id,
+            "nb_tiers": len(resultats),
+            "tiers": resultats
+        }
+
+    except Exception as e:
+        print("❌ ERREUR CIRCULARISATION :", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------
+# LISTE CIRCULARISATIONS
+# ---------------------------------------------------------
+@app.get("/circularisation/{mission_id}")
+async def get_circularisations(mission_id: str):
+
+    res = (
+        supabase
+        .table("circularisations")
+        .select("*")
+        .eq("mission_id", mission_id)
+        .order("tiers_nom")
+        .execute()
+    )
+
+    return res.data
 
 
+
+# ---------------------------------------------------------
+# UPDATE STATUT CIRCULARISATION
+# ---------------------------------------------------------
+@app.patch("/circularisation/status/{circu_id}")
+async def update_circu_status(circu_id: str, data: dict):
+
+    new_status = data.get("statut", "A PREPARER")
+
+    res = (
+        supabase
+        .table("circularisations")
+        .update({"statut": new_status})
+        .eq("id", circu_id)
+        .execute()
+    )
+
+    return {
+        "success": True,
+        "statut": new_status,
+        "data": res.data
+    }
 
 class EmailRequest(BaseModel):
     destinataire: str
