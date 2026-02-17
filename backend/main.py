@@ -570,43 +570,45 @@ Le Commissaire aux Comptes.
 # ---------------------------------------------------------
 # LISTE CIRCULARISATIONS
 # ---------------------------------------------------------
+# 7. CIRCULARISATION (SAUVEGARDE PRO)
+# ---------------------------------------------------------
+@app.post("/circularisation/{mission_id}")
+async def generate_circularisation(mission_id: str, file: UploadFile = File(...), type_circu: str = "CLIENT"):
+    try:
+        contents = await file.read()
+        engine = AuditEngine(mission_id)
+        texte_brut = engine.lire_fichier_universel(contents, file.filename)
+        tiers_data = await engine.extraire_tiers_pour_circularisation(texte_brut, type_circu)
+        
+        resultats = []
+        for tiers in tiers_data:
+            circu_obj = {
+                "mission_id": mission_id,
+                "tiers_nom": tiers.get("nom", "Inconnu"),
+                "montant": float(tiers.get("montant", 0) or 0),
+                "email": tiers.get("email", ""),
+                "statut": "A PREPARER",
+                "template_mail": f"Madame, Monsieur,\n\nMerci de confirmer votre solde de {tiers.get('montant')} EUR.",
+                "type": type_circu # Vérifie que cette colonne existe en base !
+            }
+            res = supabase.table("circularisations").insert(circu_obj).execute()
+            if res.data: resultats.append(res.data[0])
+        return {"tiers": resultats}
+    except Exception as e:
+        print(f"ERREUR CRITIQUE CIRCULARISATION : {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/circularisation/{mission_id}")
 async def get_circularisations(mission_id: str):
-
-    res = (
-        supabase
-        .table("circularisations")
-        .select("*")
-        .eq("mission_id", mission_id)
-        .order("tiers_nom")
-        .execute()
-    )
-
+    res = supabase.table("circularisations").select("*").eq("mission_id", mission_id).execute()
     return res.data
 
-
-
-# ---------------------------------------------------------
-# UPDATE STATUT CIRCULARISATION
-# ---------------------------------------------------------
 @app.patch("/circularisation/status/{circu_id}")
 async def update_circu_status(circu_id: str, data: dict):
+    res = supabase.table("circularisations").update({"statut": data.get("statut")}).eq("id", circu_id).execute()
+    return {"success": True, "data": res.data}
 
-    new_status = data.get("statut", "A PREPARER")
-
-    res = (
-        supabase
-        .table("circularisations")
-        .update({"statut": new_status})
-        .eq("id", circu_id)
-        .execute()
-    )
-
-    return {
-        "success": True,
-        "statut": new_status,
-        "data": res.data
-    }
+    
 
 class EmailRequest(BaseModel):
     destinataire: str
