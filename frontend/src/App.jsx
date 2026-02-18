@@ -16,6 +16,7 @@ import HelpView from './HelpView';
 import ChatBot from './ChatBot';
 import CircularisationView from './CircularisationView';
 
+
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
   ? "http://127.0.0.1:8000"
   : "https://ml-audit-pro.onrender.com";
@@ -544,6 +545,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(`${API_URL}/missions`, {
+        user_id: session.user.id, // <--- ENVOYER L'ID DE LA SESSION
         raison_sociale: form.raisonSociale, exercice_comptable: form.exercice,
         chiffre_affaires_n: parseFloat(form.ca), resultat_net_n: parseFloat(form.resultat || 0),
         total_bilan: parseFloat(form.bilan || 0), client_email: session.user.email
@@ -553,28 +555,33 @@ function App() {
     } catch (e) { alert("Erreur création."); } finally { setLoading(false); }
   };
 
-  const handleUpload = async (mission, files, type = "FEC") => {
+ const handleUpload = async (mission, files, type = "FEC") => {
+    // Supprime la ligne isolée ici
     if (!files || files.length === 0) return alert("Aucun fichier sélectionné.");
     setUploadingId(mission.id); 
     
     const formData = new FormData();
+    // On ajoute l'ID de l'utilisateur pour que le backend puisse marquer les anomalies
+    formData.append('user_id', session.user.id); 
+
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
     }
 
     try {
-      // AJOUT DE import_type DANS L'URL
+      // On envoie le tout
       await axios.post(`${API_URL}/analyze/${mission.id}?import_type=${type}`, formData);
       alert("Analyse terminée !");
       setSelectedFiles([]); 
       await fetchMissions();
       fetchAnomalies(mission);
     } catch (e) { 
+        console.error(e);
         alert("Erreur analyse."); 
     } finally { 
         setUploadingId(null); 
     }
-  };
+};
 
 
   const fetchAnomalies = async (mission) => {

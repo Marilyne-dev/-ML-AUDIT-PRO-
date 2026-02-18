@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from datetime import datetime # Import unique et propre
 import os
 from dotenv import load_dotenv
-
+from fastapi import Form 
 load_dotenv()
 app = FastAPI()
 
@@ -55,6 +55,7 @@ class QuestionRequest(BaseModel):
 # ---------------------------------------------------------
 @app.post("/missions")
 async def create_mission_v4(data: dict):
+    user_id = data.get('user_id') 
     ca = float(data.get('chiffre_affaires_n', 0))
     res_net = float(data.get('resultat_net_n', 0))
     bilan = float(data.get('total_bilan', 0))
@@ -101,7 +102,8 @@ async def create_mission_v4(data: dict):
 async def analyze_v4(
     mission_id: str,
     files: List[UploadFile] = File(...),
-    import_type: str = "FEC"   # "FEC" ou "DOCS"
+    import_type: str = "FEC",  # "FEC" ou "DOCS"
+    user_id: str = Form(...) 
 ):
     """
     Analyse universelle :
