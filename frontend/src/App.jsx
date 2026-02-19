@@ -15,6 +15,7 @@ import ConfigurationView from './ConfigurationView';
 import HelpView from './HelpView';
 import ChatBot from './ChatBot';
 import CircularisationView from './CircularisationView';
+import CycleDetailView from './CycleDetailView';
 
 
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
@@ -518,6 +519,15 @@ function App() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
 
+  // On récupère le cycle actif depuis le stockage du navigateur pour la persistance
+    const [activeCycleId, setActiveCycleId] = useState(localStorage.getItem('activeCycleId') || null);
+    const [cycleChecklist, setCycleChecklist] = useState(JSON.parse(localStorage.getItem('cycleChecklist')) || {});
+
+    useEffect(() => {
+    localStorage.setItem('activeCycleId', activeCycleId);
+    localStorage.setItem('cycleChecklist', JSON.stringify(cycleChecklist));
+}, [activeCycleId, cycleChecklist]);
+    
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -545,7 +555,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(`${API_URL}/missions`, {
-        user_id: session.user.id, // <--- ENVOYER L'ID DE LA SESSION
+        user_id: session.user.id,  // <--- ENVOYER L'ID DE LA SESSION
         raison_sociale: form.raisonSociale, exercice_comptable: form.exercice,
         chiffre_affaires_n: parseFloat(form.ca), resultat_net_n: parseFloat(form.resultat || 0),
         total_bilan: parseFloat(form.bilan || 0), client_email: session.user.email
@@ -625,17 +635,44 @@ const handleMenuItemClick = (item) => {
     // On regroupe tous les boutons de rapport vers la même vue de téléchargement
     // --- 2. RAPPORTS ---
     // Remplace la condition des rapports par celle-ci :
-    else if (['report_cac', 'report_synthese', 'opinion'].includes(item.id)) {
+    // --- 1. ANCIENS RAPPORTS (ACTIF / PASSIF) ---
+    // On utilise une liste précise pour ne pas confondre avec les C01, C02
+    if (['cycle_actif', 'cycle_passif', 'cycle_resultat', 'cycle_od'].includes(item.id)) {
         if (selectedMission) {
-            setReportType(item.id); // On enregistre EXACTEMENT le bouton cliqué
-            setView('SINGLE_REPORT'); // On affiche la nouvelle vue
-        } else { 
-            alert("Veuillez d'abord sélectionner un dossier dans la liste."); 
-            setView('LIST'); 
+            setView('REPORT'); // On retourne sur l'ancienne vue
+            const cat = item.id.replace('cycle_', '').toUpperCase();
+            setFilterCategory(cat);
+        } else {
+            alert("Sélectionnez un dossier"); setView('LIST');
         }
     }
 
-    // --- 3. CIRCULARISATION ---
+    // --- 2. NOUVEAUX SIGLES DÉTAILLÉS (C01 à C11) ---
+    // On regarde si l'ID contient un "C" suivi d'un chiffre
+    else if (item.id.startsWith('cycle_C')) {
+        if (selectedMission) {
+            const code = item.id.split('_')[1]; // Récupère C01, C02...
+            setActiveCycleId(code);
+            setView('CYCLE_DETAIL'); // On va sur la nouvelle vue
+        } else {
+            alert("Sélectionnez un dossier"); setView('LIST');
+        }
+    }
+        // --- 3. CIRCULARISATION ---
+        else if (item.id.startsWith('cycle_')) {
+        if (selectedMission) {
+            // Ex: si item.id est 'cycle_actif', on peut rediriger vers une liste ou un cycle spécifique
+            // Ici, on va dire que cliquer sur un cycle précis dans le menu définit le cycle actif
+            const code = item.id.replace('cycle_', '').toUpperCase(); // Ex: C01
+            setActiveCycleId(code);
+            setView('CYCLE_DETAIL');
+        } else {
+            alert("Sélectionnez un dossier d'abord");
+            setView('LIST');
+        }
+    }
+
+    // --- 4.
     else if (['circu_clients', 'circu_fournisseurs', 'circu_banques'].includes(item.id)) {
         if (selectedMission) {
             setView('CIRCULARISATION');
@@ -645,7 +682,7 @@ const handleMenuItemClick = (item) => {
         }
     }
 
-    // --- 4. PARAMÈTRES & CONFIG ---
+    // --- 6. PARAMÈTRES & CONFIG ---
     else if (item.id === 'params_client') {
         if (selectedMission) setView('PARAMS');
         else { alert("Veuillez sélectionner un dossier."); setView('LIST'); }
@@ -658,24 +695,7 @@ const handleMenuItemClick = (item) => {
          else { alert("Veuillez sélectionner un dossier."); setView('LIST'); }
     }
 
-    // --- 5. RÉSULTATS D'ANALYSE (Par défaut pour le reste) ---
-    else {
-        if (selectedMission) {
-            setView('REPORT');
-            
-            // Application des filtres selon le bouton cliqué
-            if (item.id === 'cycle_actif') setFilterCategory('ACTIF');
-            else if (item.id === 'cycle_passif') setFilterCategory('PASSIF');
-            else if (item.id === 'cycle_resultat') setFilterCategory('RESULTAT');
-            else if (item.id === 'cycle_od') setFilterCategory('OD');
-            else if (item.id === 'anomalies_critiques') setFilterCategory('CRITIQUE');
-            else setFilterCategory('ALL'); // Par défaut 'analysis_global'
-
-        } else {
-            alert("Veuillez sélectionner un dossier dans la liste pour voir les résultats.");
-            setView('LIST');
-        }
-    }
+   
     
     // Ferme le menu sur mobile après un clic
     if (window.innerWidth < 1024) setIsMenuOpen(false);
@@ -851,13 +871,22 @@ const handleMenuItemClick = (item) => {
         {view === 'CONFIG' && <ConfigurationView />}
         {view === 'HELP' && <HelpView />}
         {view === 'SOON' && <ComingSoon />}
-        {view === 'CIRCULARISATION' && selectedMission && <CircularisationView mission={selectedMission} />}
+        {view === 'CIRCULARISATION' && selectedMission && <CircularisationView mission={selectedMission} session={session} />}
         {view === 'PARAMS' && selectedMission && <ClientParamsView mission={selectedMission} />}
         {view === 'METRICS' && <MLMetricsView />}
         {view === 'GENERATE_REPORT' && selectedMission && <ReportGenerationView mission={selectedMission} />}
         {view === 'INTEGRITY' && selectedMission && <IntegrityCheckView mission={selectedMission} anomalies={anomalies} />}
         {/* Remplace GENERATE_REPORT par SINGLE_REPORT en lui passant le reportType */}
         {view === 'SINGLE_REPORT' && selectedMission && <SingleReportView mission={selectedMission} reportType={reportType} />}
+        {view === 'CYCLE_DETAIL' && selectedMission && (
+        <CycleDetailView 
+            cycleId={activeCycleId} 
+            mission={selectedMission} 
+            session={session} // <--- AJOUTE ÇA ICI
+            checklist={cycleChecklist} 
+            setChecklist={setCycleChecklist} 
+        />
+        )}
         
       </div>
 

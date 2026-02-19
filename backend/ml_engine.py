@@ -152,7 +152,7 @@ class AuditEngine:
 
 
     # --- FONCTION MODIFIÉE (REMPLACE L'ANCIENNE) ---
-    def analyser_document_pdf_excel(self, texte, is_sigle=False):
+    def analyser_document_pdf_excel(self, texte, is_sigle=False, cycle_id=None): # <--- AJOUT cycle_id
         """Analyse IA avec détection d'écarts (SIGLES)"""
         import re
         import json
@@ -163,11 +163,18 @@ class AuditEngine:
         # Consigne par défaut
         consigne_audit = "Cherche des incohérences de dates, montants suspects, mentions de litiges."
 
-        # Consigne spéciale SIGLES
+        # AJOUT : Instruction spécifique pour le code C01, C02...
+        instruction_code = ""
+        if cycle_id:
+            instruction_code = f"IMPORTANT : Pour le champ 'cycle', utilise impérativement le code '{cycle_id}'."
+        else:
+            instruction_code = "Classe chaque anomalie dans l'un de ces CYCLES : IMMO_CORPORELLES, STOCKS, CLIENTS, TRESORERIE, etc."
+
+        # Consigne spéciale SIGLES (Ta logique conservée et enrichie)
         if is_sigle:
             consigne_audit = f"""
     FOCUS AUDIT (SIGLES) :
-
+    {f"Tu analyses actuellement le cycle spécifique : {cycle_id}" if cycle_id else ""}
     1. Analyse ce document comme un bilan (Actif ou Passif).
     2. Identifie les variations atypiques entre N et N-1.
     3. Vérifie la cohérence des rubriques (ex: amortissements vs immo).
@@ -176,28 +183,13 @@ class AuditEngine:
     TEXTE :
     {texte_propre[:20000]}
 
-    RÈGLE IMPORTANTE - CLASSEMENT PAR CYCLE :
-
-    Tu DOIS classer chaque anomalie dans un de ces CYCLES précis :
-
-    - IMMO_CORPORELLES
-    - STOCKS
-    - CLIENTS
-    - TRESORERIE
-    - CAPITAUX_PROPRES
-    - EMPRUNTS
-    - FOURNISSEURS
-    - DETTES_FISCALES
-    - CHARGES_PERSONNEL
-    - RESULTAT
-
-    Si tu ne sais pas, mets "OPERATIONS_DIVERSES".
+    RÈGLE DE CLASSEMENT :
+    {instruction_code}
 
     Réponds UNIQUEMENT en JSON Array :
-
     [
     {{
-        "cycle": "TRESORERIE",
+        "cycle": "{cycle_id if cycle_id else 'TRESORERIE'}",
         "type_anomalie": "DOCUMENTAIRE",
         "niveau_criticite": "ELEVE",
         "score_ml": 80,
@@ -205,7 +197,6 @@ class AuditEngine:
         "description": "Explication claire..."
     }}
     ]
-
     Si rien à signaler, renvoie [].
     """
 
@@ -218,24 +209,14 @@ class AuditEngine:
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )
-
             content = message.content[0].text
-
-            # Extraction sécurisée du JSON
             start = content.find('[')
             end = content.rfind(']') + 1
-
-            if start == -1 or end == 0:
-                return []
-
-            json_text = content[start:end]
-            return json.loads(json_text)
-
+            if start == -1 or end == 0: return []
+            return json.loads(content[start:end])
         except Exception as e:
             print("Erreur analyse IA :", e)
             return []
-
-
 
 
     # --- NOUVELLE FONCTION A AJOUTER ---

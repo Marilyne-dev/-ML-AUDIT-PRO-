@@ -100,11 +100,32 @@ export const MENU_STRUCTURE = [
 
   {
     id: 'section_circu', // NOUVELLE SECTION
-    title: "CIRCULARISATION",
+    title: "9.CIRCULARISATION",
     icon: Mail,
     items: [
       { id: 'circu_clients', label: 'Confirmation Clients', active: true },
       
+    ]
+  },
+
+  {
+    id: 'section_cycle_detail', // Nouvel ID
+    title: "10. TRAVAUX PAR CYCLE (SIGLES)",
+    icon: BarChart3,
+    items: [
+      { id: 'cycle_C01', label: 'C01 - Ventes & Clients', active: true },
+      { id: 'cycle_C02', label: 'C02 - Achats & Fournisseurs', active: true },
+      { id: 'cycle_C03', label: 'C03 - Trésorerie', active: true },
+      { id: 'cycle_C04', label: 'C04 - Stocks', active: true },
+      { id: 'cycle_C05', label: 'C05 - Immobilisations', active: true },
+      { id: 'cycle_C06', label: 'C06 - Paie – Personnel', active: true },
+      { id: 'cycle_C07', label: 'C07 - Fiscal', active: true },
+      { id: 'cycle_C08', label: 'C08 - Capitaux Propres', active: true },
+      { id: 'cycle_C09', label: 'C09 - Emprunts et Dettes Fin.', active: true },
+      { id: 'cycle_C10', label: 'C10 - Autres Provisions / Engagements', active: true },
+      { id: 'cycle_C11', label: 'C11 - Contrôle Interne', active: true },
+
+      // Tu peux ajouter les autres C06 à C11 ici plus tard
     ]
   },
 ];

@@ -19,13 +19,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import Form 
 load_dotenv()
-app = FastAPI()
-
-
-import os
-from dotenv import load_dotenv
-
-load_dotenv()   # charge le .env
+  # charge le .env
 
 # 1. Initialisation de l'application
 app = FastAPI()
@@ -55,7 +49,9 @@ class QuestionRequest(BaseModel):
 # ---------------------------------------------------------
 @app.post("/missions")
 async def create_mission_v4(data: dict):
-    user_id = data.get('user_id') 
+    user_id = data.get('user_id')
+    if not user_id:
+        raise HTTPException(status_code=400, detail="ID Utilisateur manquant") 
     ca = float(data.get('chiffre_affaires_n', 0))
     res_net = float(data.get('resultat_net_n', 0))
     bilan = float(data.get('total_bilan', 0))
@@ -102,8 +98,9 @@ async def create_mission_v4(data: dict):
 async def analyze_v4(
     mission_id: str,
     files: List[UploadFile] = File(...),
-    import_type: str = "FEC",  # "FEC" ou "DOCS"
-    user_id: str = Form(...) 
+    import_type: str = "FEC",   # "FEC" ou "DOCS"
+    user_id: str = None,
+    cycle_id: str = None 
 ):
     """
     Analyse universelle :
@@ -495,110 +492,77 @@ def read_root():
 # ---------------------------------------------------------
 from datetime import datetime
 
+# ---------------------------------------------------------
+# 7. MODULE CIRCULARISATION EXPERT (ISA 505)
+# ---------------------------------------------------------
+
 @app.post("/circularisation/{mission_id}")
 async def generate_circularisation(
-    mission_id: str,
-    file: UploadFile = File(...),
-    type_circu: str = "CLIENT"
+    mission_id: str, 
+    file: UploadFile = File(...), 
+    type_circu: str = "CLIENT", 
+    mode: str = "FERME", 
+    user_id: str = None
 ):
-    try:
-        contents = await file.read()
-        engine = AuditEngine(mission_id)
-
-        texte_brut = engine.lire_fichier_universel(contents, file.filename)
-
-        tiers_data = await engine.extraire_tiers_pour_circularisation(
-            texte_brut,
-            type_circu
-        )
-
-        if not tiers_data:
-            return {
-                "mission_id": mission_id,
-                "nb_tiers": 0,
-                "tiers": [],
-                "message": "Aucun tiers détecté"
-            }
-
-        resultats = []
-
-        for tiers in tiers_data:
-
-            montant = float(tiers.get("montant", 0) or 0)
-            nom = tiers.get("nom", "Inconnu")
-            email = tiers.get("email", "")
-
-            mail_body = f"""
-Objet : Demande de confirmation de solde - Audit {datetime.now().year}
-
-Madame, Monsieur,
-
-Dans le cadre de notre audit, merci de confirmer le solde arrêté au 31/12.
-
-Solde selon nos livres : {montant} EUR
-
-Merci de signaler tout écart.
-
-Cordialement,
-Le Commissaire aux Comptes.
-"""
-
-            circu_obj = {
-                "mission_id": mission_id,
-                "tiers_nom": nom,
-                "montant": montant,
-                "email": email,
-                "statut": "A PREPARER",
-                "template_mail": mail_body,
-                "type": type_circu,
-                "date_generation": datetime.utcnow().isoformat()
-            }
-
-            res = supabase.table("circularisations").insert(circu_obj).execute()
-
-            if res.data:
-                resultats.append(res.data[0])
-
-        return {
-            "mission_id": mission_id,
-            "nb_tiers": len(resultats),
-            "tiers": resultats
-        }
-
-    except Exception as e:
-        print("❌ ERREUR CIRCULARISATION :", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ---------------------------------------------------------
-# LISTE CIRCULARISATIONS
-# ---------------------------------------------------------
-# 7. CIRCULARISATION (SAUVEGARDE PRO)
-# ---------------------------------------------------------
-@app.post("/circularisation/{mission_id}")
-async def generate_circularisation(mission_id: str, file: UploadFile = File(...), type_circu: str = "CLIENT"):
+    if not user_id or user_id == "null" or user_id == "":
+        raise HTTPException(status_code=400, detail="L'ID utilisateur est manquant. Reconnectez-vous.")
     try:
         contents = await file.read()
         engine = AuditEngine(mission_id)
         texte_brut = engine.lire_fichier_universel(contents, file.filename)
+        
+        # L'IA extrait Nom, Montant et cherche l'Email
         tiers_data = await engine.extraire_tiers_pour_circularisation(texte_brut, type_circu)
         
         resultats = []
         for tiers in tiers_data:
+            montant = tiers.get("montant", 0)
+            nom = tiers.get("nom", "Inconnu")
+            email = tiers.get("email", "")
+
+            # LOGIQUE CLIENT : Mode FERMÉ (Prix visible) vs OUVERT (Prix masqué)
+            if mode == "FERME":
+                detail_solde = f"Le solde de votre compte dans nos livres au 31/12 s'élève à : {montant} EUR."
+            else:
+                detail_solde = "Nous vous prions de bien vouloir nous communiquer le solde de notre compte figurant dans vos livres au 31/12."
+
+            mail_body = f"""
+            Objet : Demande de confirmation de solde - {type_circu}
+            
+            Madame, Monsieur,
+            
+            Dans le cadre de notre mission d'audit, merci de confirmer les informations suivantes :
+            {detail_solde}
+            
+            Veuillez nous répondre directement via le bouton de confirmation.
+            
+            Cordialement,
+            Le Commissaire aux Comptes.
+            """
+
             circu_obj = {
                 "mission_id": mission_id,
-                "tiers_nom": tiers.get("nom", "Inconnu"),
-                "montant": float(tiers.get("montant", 0) or 0),
-                "email": tiers.get("email", ""),
-                "statut": "A PREPARER",
-                "template_mail": f"Madame, Monsieur,\n\nMerci de confirmer votre solde de {tiers.get('montant')} EUR.",
-                "type": type_circu # Vérifie que cette colonne existe en base !
+                "user_id": user_id,
+                "tiers_nom": nom,
+                "montant": float(montant or 0),
+                "email": email,
+                "statut": "À PRÉPARER",
+                "template_mail": mail_body,
+                "type": type_circu,
+                "mode": mode,
+                "date_generation": datetime.utcnow().isoformat()
             }
+
             res = supabase.table("circularisations").insert(circu_obj).execute()
-            if res.data: resultats.append(res.data[0])
+            if res.data:
+                resultats.append(res.data[0])
+
         return {"tiers": resultats}
+
     except Exception as e:
-        print(f"ERREUR CRITIQUE CIRCULARISATION : {str(e)}")
+        print(f"❌ ERREUR CIRCULARISATION : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
 
 @app.get("/circularisation/{mission_id}")
 async def get_circularisations(mission_id: str):
@@ -649,3 +613,32 @@ async def send_email_api(req: EmailRequest):
     except Exception as e:
         print(f"Erreur envoi mail: {e}")
         return {"success": False, "message": f"Erreur technique : {str(e)}"}
+    
+
+@app.get("/anomalies/{mission_id}/{cycle_code}")
+async def get_anomalies_by_cycle(mission_id: str, cycle_code: str):
+    # Dictionnaire pour la continuité : lien entre Code et Nom
+    mapping = {
+        "C01": "CLIENTS", "C02": "FOURNISSEURS", "C03": "TRESORERIE",
+        "C04": "STOCKS", "C05": "IMMO_CORPORELLES", "C06": "CHARGES_PERSONNEL",
+        "C07": "DETTES_FISCALES", "C08": "CAPITAUX_PROPRES", "C09": "EMPRUNTS",
+        "C10": "PROVISIONS"
+    }
+    
+    target_name = mapping.get(cycle_code.upper())
+
+    # ON RECHERCHE LES DEUX (Code OU Nom)
+    # C'est ça l'augmentation : on ne supprime rien, on additionne les résultats
+    res = supabase.table("anomalies") \
+        .select("*") \
+        .eq("mission_id", mission_id) \
+        .or_(f"cycle.eq.{cycle_code.upper()}, cycle.eq.{target_name}") \
+        .execute()
+        
+    return res.data
+
+
+
+
+
+
