@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CYCLES_DATA } from './CyclesData';
+import { CYCLES_DATA } from '/CyclesData.js';
 import { Shield, AlertCircle, CheckSquare, Upload, FileCheck, Activity, List } from 'lucide-react';
 import axios from 'axios';
 
