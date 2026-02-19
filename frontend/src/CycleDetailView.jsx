@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { CYCLES_DATA } from './CyclesData';
+
+// PAR (tout en minuscule) :
+import { CYCLES_DATA } from './cyclesData';
 import { Shield, AlertCircle, CheckSquare, Upload, FileCheck, Activity, List } from 'lucide-react';
 import axios from 'axios';
 
