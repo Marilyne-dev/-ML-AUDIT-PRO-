@@ -16,6 +16,9 @@ import HelpView from './HelpView';
 import ChatBot from './ChatBot';
 import CircularisationView from './CircularisationView';
 import CycleDetailView from './CycleDetailView';
+import KnowledgeView from './KnowledgeView';
+import MissionLetterView from './MissionLetterView';
+import FinalRevisionView from './FinalRevisionView';
 
 
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
@@ -695,8 +698,24 @@ const handleMenuItemClick = (item) => {
          else { alert("Veuillez sélectionner un dossier."); setView('LIST'); }
     }
 
+
+
+        else if (item.id === 'fiche_connaissance') {
+        if (selectedMission) setView('KNOWLEDGE');
+        else { alert("Sélectionnez un dossier"); setView('LIST'); }
+    }
    
-    
+
+        else if (item.id === 'lettre_mission') {
+        if (selectedMission) setView('LETTER');
+        else { alert("Sélectionnez un dossier"); setView('LIST'); }
+    }
+
+        else if (item.id === 'final_revision') {
+        if (selectedMission) setView('FINAL_REVISION');
+        else { alert("Sélectionnez un dossier"); setView('LIST'); }
+    }
+        
     // Ferme le menu sur mobile après un clic
     if (window.innerWidth < 1024) setIsMenuOpen(false);
   };
@@ -887,7 +906,9 @@ const handleMenuItemClick = (item) => {
             setChecklist={setCycleChecklist} 
         />
         )}
-        
+        {view === 'KNOWLEDGE' && selectedMission && <KnowledgeView mission={selectedMission} session={session} />}
+        {view === 'LETTER' && selectedMission && <MissionLetterView mission={selectedMission} />}
+        {view === 'FINAL_REVISION' && selectedMission && <FinalRevisionView mission={selectedMission} session={session} />}
       </div>
 
       {selectedMission && <ChatBot missionId={selectedMission.id} />}

@@ -13,7 +13,8 @@ export const MENU_STRUCTURE = [
     items: [
       { id: 'new_mission', label: 'Nouvelle Mission', active: true },
       { id: 'missions_list', label: 'Portefeuille Clients', active: true },
-      { id: 'params_client', label: 'Paramètres Client', active: true },
+      { id: 'fiche_connaissance', label: 'Fiche de connaissance', active: true }, // <--- ON ACTIVE ÇA
+      { id: 'lettre_mission', label: 'Lettre de Mission (Générateur)', active: true }, // <--- ON ACTIVE ÇA
       { id: 'seuils_isa', label: 'Calcul Seuils ISA 320', active: true }
     ]
   },
@@ -58,15 +59,16 @@ export const MENU_STRUCTURE = [
       { id: 'fiche_anomalie', label: 'Fiches Détaillées', active: true }
     ]
   },
+  // Dans menuConfig.js, section_6 par exemple :
   {
-    id: 'section_6',
-    title: "6. RAPPORTS",
-    icon: FileText,
-    items: [
-      { id: 'report_cac', label: 'Rapport CAC Complet', active: true },
-      { id: 'report_synthese', label: 'Synthèse Exécutive', active: true },
-      { id: 'opinion', label: 'Recommandation Opinion', active: true }
-    ]
+      id: 'section_6',
+      title: "6. RAPPORTS & CONCLUSION",
+      icon: FileText,
+      items: [
+        { id: 'final_revision', label: 'Révision Finale des Comptes', active: true }, // <--- ON AJOUTE ÇA
+        { id: 'report_cac', label: 'Rapport CAC Complet', active: true },
+        { id: 'opinion', label: 'Opinion d\'Audit', active: true }
+      ]
   },
   {
     id: 'section_7',

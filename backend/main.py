@@ -504,65 +504,108 @@ async def generate_circularisation(
     mode: str = "FERME", 
     user_id: str = None
 ):
-    if not user_id or user_id == "null" or user_id == "":
-        raise HTTPException(status_code=400, detail="L'ID utilisateur est manquant. Reconnectez-vous.")
+    if not user_id or user_id == "null":
+        raise HTTPException(status_code=400, detail="ID utilisateur manquant.")
+    
     try:
         contents = await file.read()
         engine = AuditEngine(mission_id)
         texte_brut = engine.lire_fichier_universel(contents, file.filename)
-        
-        # L'IA extrait Nom, Montant et cherche l'Email
         tiers_data = await engine.extraire_tiers_pour_circularisation(texte_brut, type_circu)
         
+        # Configuration Cabinet (Inspiré de son fichier Python)
+        conf = {
+            "cabinet": "ML-AUDIT & ASSOCIÉS",
+            "adresse": "123 Avenue de l'Audit, 75001 Paris",
+            "tel": "01 23 45 67 89",
+            "inscription": "Inscrit à l'Ordre des Experts-Comptables"
+        }
+
         resultats = []
         for tiers in tiers_data:
-            montant = tiers.get("montant", 0)
+            montant = float(tiers.get("montant", 0) or 0)
             nom = tiers.get("nom", "Inconnu")
             email = tiers.get("email", "")
+            ref = f"CIRC-{datetime.now().year}-{hash(nom)%10000}"
 
-            # LOGIQUE CLIENT : Mode FERMÉ (Prix visible) vs OUVERT (Prix masqué)
+            # STYLE VISUEL DU MONTANT
             if mode == "FERME":
-                detail_solde = f"Le solde de votre compte dans nos livres au 31/12 s'élève à : {montant} EUR."
+                couleur = "#003366"
+                cadre_montant = f"""
+                <div style="border: 2px solid {couleur}; padding: 15px; text-align: center; margin: 20px 0; background-color: #f4f7f9;">
+                    <strong style="color: {couleur};">SOLDE AU 31/12 : {montant:,.2f} EUR (DÉBITEUR)</strong>
+                </div>
+                """
             else:
-                detail_solde = "Nous vous prions de bien vouloir nous communiquer le solde de notre compte figurant dans vos livres au 31/12."
+                couleur = "#DC3545"
+                cadre_montant = f"""
+                <div style="border: 2px solid {couleur}; padding: 15px; text-align: center; margin: 20px 0; background-color: #fffafa;">
+                    <strong style="color: {couleur}; uppercase">⚠️ PROCÉDURE DE CONFIRMATION OUVERTE</strong><br>
+                    <span style="font-size: 12px;">Veuillez nous communiquer le solde selon vos propres livres.</span>
+                </div>
+                """
 
-            mail_body = f"""
-            Objet : Demande de confirmation de solde - {type_circu}
-            
-            Madame, Monsieur,
-            
-            Dans le cadre de notre mission d'audit, merci de confirmer les informations suivantes :
-            {detail_solde}
-            
-            Veuillez nous répondre directement via le bouton de confirmation.
-            
-            Cordialement,
-            Le Commissaire aux Comptes.
+            # LE TEMPLATE "LETTRE OFFICIELLE"
+            mail_html = f"""
+            <div style="font-family: 'Calibri', 'Arial', sans-serif; color: #000; max-width: 700px; margin: auto; padding: 20px; border: 1px solid #ddd;">
+                <!-- EN-TETE CABINET -->
+                <div style="font-size: 11px; color: #555; line-height: 1.2;">
+                    <strong>{conf['cabinet']}</strong><br>
+                    Expert-Comptable et Commissaire aux Comptes<br>
+                    {conf['adresse']}<br>
+                    Tél : {conf['tel']}<br>
+                    {conf['inscription']}
+                </div>
+
+                <!-- DATE ET REF -->
+                <div style="text-align: right; margin-top: 20px; font-size: 13px;">
+                    Paris, le {datetime.now().strftime('%d/%m/%Y')}<br>
+                    <strong>Référence : {ref}</strong>
+                </div>
+
+                <div style="margin-top: 30px;">
+                    <strong>À l'attention de : {nom}</strong>
+                </div>
+
+                <p style="margin-top: 25px;"><strong>Objet : Demande de confirmation de solde</strong></p>
+
+                <p>Madame, Monsieur,</p>
+                <p>Dans le cadre de notre mission d'audit, nous vous prions de bien vouloir nous confirmer le solde de votre compte arrêté au 31/12.</p>
+                
+                <p>Cette demande s'inscrit dans le cadre de nos diligences normales, conformément aux normes <strong>ISA 505</strong> et <strong>NEP 505</strong> de la Compagnie Nationale des Commissaires aux Comptes.</p>
+
+                {cadre_montant}
+
+                <p>Nous vous remercions de bien vouloir :<br>
+                1. Confirmer ce solde s'il est conforme ;<br>
+                2. Nous signaler tout écart éventuel en précisant sa nature.</p>
+
+                <p style="background: #eee; padding: 10px; font-size: 12px;">
+                    <strong>AVERTISSEMENT :</strong> Votre réponse doit nous être adressée <strong>DIRECTEMENT</strong> au cabinet et non à la société auditée.
+                </p>
+
+                <p style="margin-top: 30px;">
+                    Nous vous remercions de votre collaboration.<br><br>
+                    Cordialement,<br>
+                    <strong>Le Département Audit</strong>
+                </p>
+            </div>
             """
 
             circu_obj = {
-                "mission_id": mission_id,
-                "user_id": user_id,
-                "tiers_nom": nom,
-                "montant": float(montant or 0),
-                "email": email,
-                "statut": "À PRÉPARER",
-                "template_mail": mail_body,
-                "type": type_circu,
-                "mode": mode,
+                "mission_id": mission_id, "user_id": user_id, "tiers_nom": nom,
+                "montant": montant, "email": email, "statut": "À PRÉPARER",
+                "template_mail": mail_html, "type": type_circu, "mode": mode,
                 "date_generation": datetime.utcnow().isoformat()
             }
-
             res = supabase.table("circularisations").insert(circu_obj).execute()
-            if res.data:
-                resultats.append(res.data[0])
+            if res.data: resultats.append(res.data[0])
 
         return {"tiers": resultats}
-
     except Exception as e:
-        print(f"❌ ERREUR CIRCULARISATION : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     
+
 
 @app.get("/circularisation/{mission_id}")
 async def get_circularisations(mission_id: str):
@@ -641,4 +684,141 @@ async def get_anomalies_by_cycle(mission_id: str, cycle_code: str):
 
 
 
+# --- 1. SAUVEGARDER LA CONNAISSANCE CLIENT ---
+# --- SAUVEGARDE LA CONNAISSANCE CLIENT (CORRIGÉE) ---
+@app.post("/knowledge/{mission_id}")
+async def save_knowledge(mission_id: str, data: dict, user_id: str = None):
+    try:
+        # Nettoyage des données numériques pour éviter l'erreur "integer"
+        effectif_raw = data.get('effectif')
+        
+        # On transforme le vide ou le texte en un vrai nombre ou None
+        if effectif_raw == "" or effectif_raw is None:
+            data['effectif'] = None
+        else:
+            try:
+                data['effectif'] = int(effectif_raw)
+            except ValueError:
+                data['effectif'] = 0
 
+        # On prépare le dictionnaire final
+        payload = {
+            "mission_id": mission_id,
+            "user_id": user_id,
+            "forme_juridique": data.get('forme_juridique'),
+            "secteur_activite": data.get('secteur_activite'),
+            "effectif": data['effectif'], # Maintenant c'est un vrai chiffre ou None
+            "logiciel_comptable": data.get('logiciel_comptable'),
+            "risques_generaux": data.get('risques_generaux')
+        }
+        
+        existing = supabase.table("client_knowledge").select("*").eq("mission_id", mission_id).execute()
+        
+        if existing.data:
+            res = supabase.table("client_knowledge").update(payload).eq("mission_id", mission_id).execute()
+        else:
+            res = supabase.table("client_knowledge").insert(payload).execute()
+        
+        return res.data
+
+    except Exception as e:
+        print(f"❌ ERREUR SAUVEGARDE KNOWLEDGE : {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+# --- 2. RÉCUPÉRER LA CONNAISSANCE CLIENT ---
+@app.get("/knowledge/{mission_id}")
+async def get_knowledge(mission_id: str):
+    res = supabase.table("client_knowledge").select("*").eq("mission_id", mission_id).execute()
+    return res.data[0] if res.data else None
+
+
+
+
+# --- GÉNÉRATEUR DE LETTRE DE MISSION VIA IA ---
+@app.post("/generate-letter/{mission_id}")
+async def generate_mission_letter(mission_id: str):
+    # 1. Récupérer les données de la mission (Seuils ISA 320)
+    m = supabase.table("missions").select("*").eq("id", mission_id).execute()
+    if not m.data: raise HTTPException(status_code=404, detail="Mission non trouvée")
+    mission = m.data[0]
+
+    # 2. Récupérer la connaissance client
+    k = supabase.table("client_knowledge").select("*").eq("mission_id", mission_id).execute()
+    knowledge = k.data[0] if k.data else {}
+
+    # 3. Prompt pour l'IA (Expert-Comptable Senior)
+   # 3. Prompt pour l'IA (Structure conservée, détails affinés)
+    prompt = f"""
+    Tu es un Expert-Comptable senior. Rédige une Lettre de Mission d'Audit (Norme ISA/NEP).
+    
+    INFOS CLIENT :
+    - Société : {mission['raison_sociale']}
+    - Forme Juridique : {knowledge.get('forme_juridique', 'N/A')}
+    - Secteur : {knowledge.get('secteur_activite', 'N/A')}
+    - Exercice concerné : {mission['exercice_comptable']}
+    
+    DONNÉES FINANCIÈRES & SEUILS :
+    - Chiffre d'Affaires : {mission['chiffre_affaires_n']} €
+    - Seuil de Signification (ISA 320) : {mission['seuil_signification']} €
+    
+    STRUCTURE :
+    1. Objet de la mission.
+    2. Cadre d'intervention (Normes ISA/NEP).
+    3. Méthodologie basée sur les risques.
+    4. Honoraires et durée.
+    
+    CONSIGNES DE RÉDACTION :
+    - Utilise l'année {mission['exercice_comptable']} pour les dates de clôture (pas de 20XX).
+    - Ne laisse AUCUN texte entre crochets. Pour les honoraires, indique un montant forfaitaire de 2 500 € HT.
+    
+    Rédige en HTML élégant avec des titres clairs. Sois très professionnel.
+    """
+    
+    engine = AuditEngine(mission_id)
+    lettre_html = await ask_claude_general(prompt, engine.api_key)
+    
+    # Sauvegarde dans la base pour la persistance
+    supabase.table("missions").update({"engagement_letter": lettre_html}).eq("id", mission_id).execute()
+    
+    return {"lettre": lettre_html}
+
+
+
+
+
+# --- 1. RÉCUPÉRER TOUTES LES ANOMALIES ---
+@app.get("/anomalies/{mission_id}/all")
+async def get_all_anomalies(mission_id: str):
+    res = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
+    return res.data
+
+# --- 2. AVIS FINAL DE L'IA ---
+@app.post("/ia-final-advice/{mission_id}")
+async def get_ia_final_advice(mission_id: str):
+    # Récupérer mission (pour seuils) et anomalies
+    m = supabase.table("missions").select("*").eq("id", mission_id).execute()
+    a = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
+    
+    mission = m.data[0]
+    anomalies = a.data
+    total_erreurs = sum([anom.get('montant', 0) or 0 for anom in anomalies])
+    
+    prompt = f"""
+    En tant que superviseur d'audit, analyse ce dossier :
+    - Seuil de signification : {mission['seuil_signification']} €
+    - Cumul des erreurs détectées : {total_erreurs} €
+    - Nombre d'anomalies : {len(anomalies)}
+
+    Donne un avis bref (10 lignes) sur la nécessité de certifier avec ou sans réserve. 
+    Compare le cumul des erreurs au seuil de signification.
+    """
+    engine = AuditEngine(mission_id)
+    advice = await ask_claude_general(prompt, engine.api_key)
+    return {"advice": advice}
+
+# --- 3. MISE À JOUR DE LA MISSION (Conclusion) ---
+@app.patch("/missions/{mission_id}")
+async def update_mission_field(mission_id: str, data: dict):
+    res = supabase.table("missions").update(data).eq("id", mission_id).execute()
+    return res.data
