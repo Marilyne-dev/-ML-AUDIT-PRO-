@@ -537,6 +537,20 @@ function App() {
     }
   }, [view, activeCycleId, selectedMission]);
   const [uploadingId, setUploadingId] = useState(null);
+  // --- BLOC DE SAUVEGARDE AUTOMATIQUE (PERSISTANCE) ---
+  useEffect(() => {
+    // On sauve la vue actuelle (ex: KNOWLEDGE, FINAL_REVISION...)
+    localStorage.setItem('currentView', view);
+    
+    // On sauve l'ID du cycle si on est dans un sigle
+    if (activeCycleId) localStorage.setItem('activeCycleId', activeCycleId);
+    
+    // On sauve la mission sélectionnée pour ne pas la perdre au refresh
+    if (selectedMission) {
+        localStorage.setItem('selectedMission', JSON.stringify(selectedMission));
+    }
+  }, [view, activeCycleId, selectedMission]); 
+  // Ce code s'exécute tout seul dès qu'une de ces 3 variables change
   const [selectedFiles, setSelectedFiles] = useState([]);
   const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
 

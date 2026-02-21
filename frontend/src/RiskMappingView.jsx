@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import Plotly from 'plotly.js-dist-min';
-import createPlotlyComponent from 'react-plotly.js/factory';
-const Plot = createPlotlyComponent(Plotly);
+import Plot from './PlotlyConfig';
 
 import { Grid3X3, Loader2 } from 'lucide-react';
 import axios from 'axios';

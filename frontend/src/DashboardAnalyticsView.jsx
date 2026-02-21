@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import Plotly from 'plotly.js-dist-min';
-import createPlotlyComponent from 'react-plotly.js/factory';
-const Plot = createPlotlyComponent(Plotly);
 
 import { Activity, BrainCircuit, BarChart3, LayoutDashboard, Loader2, Target, ShieldCheck, Zap } from 'lucide-react';
 import axios from 'axios';
+import Plot from './PlotlyConfig';
 
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
   ? "http://127.0.0.1:8000" : "https://ml-audit-pro.onrender.com";
