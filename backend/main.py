@@ -393,7 +393,10 @@ async def export_report(mission_id: str, format: str = "pdf"):
 
         p.save()
         buffer.seek(0)
-        return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=Rapport_{mission['raison_sociale']}.pdf"})
+        return StreamingResponse(buffer, media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=Rapport.pdf",
+        "Access-Control-Expose-Headers": "Content-Disposition" # <--- AJOUTE ÇA pour Render
+    })
 
     # --- FORMAT EXCEL ---
    # --- FORMAT EXCEL ---
@@ -912,3 +915,39 @@ async def get_advanced_stats(mission_id: str):
         # Affichera l'erreur précise dans ton terminal Uvicorn
         print(f"❌ ERREUR ANALYTICS : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+ # --- 1. SUPPRIMER UNE MISSION (POUR L'ADMIN) ---
+@app.delete("/missions/{mission_id}")
+async def delete_mission(mission_id: str):
+    try:
+        # On supprime la mission dans Supabase
+        res = supabase.table("missions").delete().eq("id", mission_id).execute()
+        return {"success": True, "message": "Mission supprimée"}
+    except Exception as e:
+        print(f"Erreur suppression: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- 2. VOIR TOUTES LES MISSIONS DE TOUS LES USERS (POUR L'ADMIN) ---
+@app.get("/admin/all-missions")
+async def get_all_missions_admin():
+    # L'admin voit tout, sans filtre sur le user_id
+    res = supabase.table("missions").select("*").order('created_at', { 'ascending': False }).execute()
+    return res.data       
+
+
+
+ # --- EXEMPLE : RÉCUPÉRER UNIQUEMENT SES MISSIONS ---
+@app.get("/missions")
+async def get_missions(user_id: str = None):
+    # Si on passe un user_id, on filtre. Sinon (pour l'admin), on peut tout envoyer
+    query = supabase.table("missions").select("*")
+    if user_id and user_id != "undefined":
+        query = query.eq("user_id", user_id)
+    
+    res = query.order('created_at', { 'ascending': False }).execute()
+    return res.data
