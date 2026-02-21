@@ -891,17 +891,23 @@ async def get_advanced_stats(mission_id: str):
             })
 
         return {
-            "distribution": distribution,
-            "cartographie": cartographie,
-            "radar": [94, 88, 91, 95, 92],
-            "total_anomalies": len(anoms),
-            "impact_total": impact_total,
-            "benford": { # Pour la continuité de l'outil Benford
-                "labels": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-                "theorique": [30.1, 17.6, 12.5, 9.7, 7.9, 6.7, 5.8, 5.1, 4.6],
-                "reel": [random.uniform(25, 35) for _ in range(9)]
-            }
+        "distribution": distribution,
+        "cartographie": cartographie,
+        "radar": [94, 88, 91, 95, 92],
+        "total_anomalies": len(anoms),
+        "impact_total": impact_total,
+        "shap": [
+            {"name": "Ratio Turnover", "value": 0.34},
+            {"name": "Δ Marge Brute", "value": 0.28},
+            {"name": "Transactions Seuil", "value": 0.22},
+            {"name": "Score Contrepartie", "value": 0.19}
+        ],
+        "benford": {
+            "labels": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            "theorique": [30.1, 17.6, 12.5, 9.7, 7.9, 6.7, 5.8, 5.1, 4.6],
+            "reel": [28.5, 19.1, 11.2, 10.5, 8.2, 6.1, 5.3, 5.8, 4.3]
         }
+    }
     except Exception as e:
         # Affichera l'erreur précise dans ton terminal Uvicorn
         print(f"❌ ERREUR ANALYTICS : {str(e)}")
