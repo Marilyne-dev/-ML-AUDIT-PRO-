@@ -514,13 +514,13 @@ function App() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // 1. DÉCLARATION DES ÉTATS (TOUJOURS EN PREMIER)
+  // --- 1. D'ABORD : TOUS LES useState ---
   const [view, setView] = useState(localStorage.getItem('currentView') || 'DASHBOARD');
   const [reportType, setReportType] = useState(null);
   const [filterCategory, setFilterCategory] = useState('ALL');
   const [expandedSection, setExpandedSection] = useState(null);
   const [showFullMenu, setShowFullMenu] = useState(true);
-  const [userRole, setUserRole] = useState('collaborateur'); // Changé 'client' en 'collaborateur' selon l'audio
+  const [userRole, setUserRole] = useState('collaborateur'); 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [missions, setMissions] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
@@ -530,7 +530,7 @@ function App() {
   const [activeCycleId, setActiveCycleId] = useState(localStorage.getItem('activeCycleId') || null);
   const [cycleChecklist, setCycleChecklist] = useState(JSON.parse(localStorage.getItem('cycleChecklist')) || {});
 
-  // 2. EFFETS DE PERSISTANCE (APRÈS LES STATES)
+  // --- 2. ENSUITE : LE BLOC DE PERSISTANCE (localStorage) ---
   useEffect(() => {
     localStorage.setItem('currentView', view);
     if (activeCycleId) localStorage.setItem('activeCycleId', activeCycleId);
@@ -539,6 +539,20 @@ function App() {
       localStorage.setItem('selectedMission', JSON.stringify(selectedMission));
     }
   }, [view, activeCycleId, selectedMission, cycleChecklist]);
+
+  // --- 3. LE RESTE DU CODE (Auth, etc.) ---
+  const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) checkUser(session.user);
+    });
+    supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) checkUser(session.user);
+    });
+  }, []);
 
   // ... le reste de tes useEffect (auth, fetchMissions) vient ICI
 
