@@ -83,7 +83,7 @@ const NewMissionView = ({ onCreate, loading }) => {
 };
 
 // 3. LISTE DES MISSIONS (INTERFACE D'IMPORT SIMPLIFIÉE)
-const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) => (
+const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId, userRole, onDeleteMission }) => (
   <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in zoom-in duration-300">
     
     <div className="bg-blue-600 text-white p-8 rounded-[30px] shadow-xl mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -123,43 +123,50 @@ const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId }) 
           </div>
         </div>
 
-        {/* ACTIONS : C'EST ICI QU'ON SIMPLIFIE POUR LE CLIENT */}
-        <div className="flex items-center gap-3">
+       <div className="flex items-center gap-3">
             
-            {/* BOUTON IMPORT UNIQUE ET GROS */}
+            {/* --- BLOC ADMIN : RACCOURCIS ET SUPPRESSION --- */}
+            {userRole === 'admin' && (
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mr-2 border border-slate-200">
+                    {/* Icône Fiche de connaissance */}
+                    <button title="Fiche de connaissance" onClick={() => { onSelectMission(m); setView('KNOWLEDGE'); }} className="p-2 hover:bg-white hover:text-blue-600 rounded-lg transition text-slate-400">
+                        <Briefcase size={16}/>
+                    </button>
+                    {/* Icône Lettre de mission */}
+                    <button title="Générer Lettre de mission" onClick={() => { onSelectMission(m); setView('LETTER'); }} className="p-2 hover:bg-white hover:text-blue-600 rounded-lg transition text-slate-400">
+                        <FileText size={16}/>
+                    </button>
+                    {/* Icône Révision finale */}
+                    <button title="Révision Finale" onClick={() => { onSelectMission(m); setView('FINAL_REVISION'); }} className="p-2 hover:bg-white hover:text-blue-600 rounded-lg transition text-slate-400">
+                        <CheckCircle size={16}/>
+                    </button>
+                    {/* BOUTON SUPPRIMER (Rouge) */}
+                    <button 
+                        title="Supprimer la mission" 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if(window.confirm(`Voulez-vous vraiment supprimer le dossier ${m.raison_sociale} ?`)) {
+                                onDeleteMission(m.id);
+                            }
+                        }} 
+                        className="p-2 hover:bg-red-50 hover:text-red-600 rounded-lg transition text-slate-300"
+                    >
+                        <AlertTriangle size={16}/>
+                    </button>
+                </div>
+            )}
+
+            {/* BOUTON IMPORT (Reste identique) */}
             <div className="relative">
-                <input 
-                    type="file" 
-                    multiple 
-                    id={`file-${m.id}`}
-                    className="hidden" 
-                    onChange={(e) => onUpload(m, e.target.files)} 
-                />
-                <label 
-                    htmlFor={`file-${m.id}`}
-                    className={`cursor-pointer flex items-center gap-3 px-6 py-4 rounded-xl font-black text-xs shadow-lg transition transform hover:scale-105 active:scale-95 ${
-                        uploadingId === m.id 
-                        ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-                        : "bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-700 hover:to-blue-600"
-                    }`}
-                >
-                    {uploadingId === m.id ? (
-                        <>⏳ ANALYSE EN COURS...</>
-                    ) : (
-                        <>
-                            <Upload size={18}/> 
-                            {m.statut === 'Analysée' ? "AJOUTER FICHIERS" : "IMPORTER DOCUMENTS"}
-                        </>
-                    )}
+                <input type="file" multiple id={`file-${m.id}`} className="hidden" onChange={(e) => onUpload(m, e.target.files)} />
+                <label htmlFor={`file-${m.id}`} className={`cursor-pointer flex items-center gap-3 px-6 py-4 rounded-xl font-black text-xs shadow-lg transition transform hover:scale-105 ${uploadingId === m.id ? "bg-slate-100 text-slate-400" : "bg-gradient-to-r from-blue-600 to-blue-500 text-white"}`}>
+                    {uploadingId === m.id ? "⏳..." : <><Upload size={18}/> IMPORTER</>}
                 </label>
             </div>
 
-            {/* BOUTON RÉSULTATS */}
+            {/* BOUTON RÉSULTATS (Reste identique) */}
             {m.statut === 'Analysée' && (
-                <button 
-                    onClick={() => onSelectMission(m)} 
-                    className="bg-slate-800 text-white px-6 py-4 rounded-xl font-black text-xs hover:bg-slate-900 shadow-lg flex items-center gap-2 transition transform hover:scale-105"
-                >
+                <button onClick={() => onSelectMission(m)} className="bg-slate-800 text-white px-6 py-4 rounded-xl font-black text-xs hover:bg-slate-900 shadow-lg flex items-center gap-2 transition transform hover:scale-105">
                     VOIR RÉSULTATS <ChevronRight size={14}/>
                 </button>
             )}
@@ -372,6 +379,8 @@ const SingleReportView = ({ mission, reportType }) => {
 
 // --- VUE CONTRÔLE INTÉGRITÉ ---
 const IntegrityCheckView = ({ mission, anomalies }) => {
+     if (!mission) return <div className="p-10">Sélectionnez une mission...</div>;
+    
     // Simulation de vérifications basées sur les anomalies trouvées
     const hasError = anomalies.some(a => a.niveau_criticite === 'CRITIQUE');
     const technicalErrors = anomalies.filter(a => a.type_anomalie === 'ERREUR LECTURE');
@@ -506,7 +515,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   
   // Navigation & Menu
-  const [view, setView] = useState('DASHBOARD');
+  const [view, setView] = useState(localStorage.getItem('currentView') || 'DASHBOARD');
   const [reportType, setReportType] = useState(null); // <--- AJOUTE CETTE LIGNE ICI
   const [filterCategory, setFilterCategory] = useState('ALL');
   
@@ -519,15 +528,24 @@ function App() {
   
   const [missions, setMissions] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
-  const [selectedMission, setSelectedMission] = useState(null);
+ const [selectedMission, setSelectedMission] = useState(JSON.parse(localStorage.getItem('selectedMission')) || null);
+ useEffect(() => {
+    localStorage.setItem('currentView', view);
+    localStorage.setItem('activeCycleId', activeCycleId);
+    if (selectedMission) {
+        localStorage.setItem('selectedMission', JSON.stringify(selectedMission));
+    }
+  }, [view, activeCycleId, selectedMission]);
   const [uploadingId, setUploadingId] = useState(null);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
 
   // On récupère le cycle actif depuis le stockage du navigateur pour la persistance
-    const [activeCycleId, setActiveCycleId] = useState(localStorage.getItem('activeCycleId') || null);
+     const [activeCycleId, setActiveCycleId] = useState(localStorage.getItem('activeCycleId') || null);
     const [cycleChecklist, setCycleChecklist] = useState(JSON.parse(localStorage.getItem('cycleChecklist')) || {});
 
+
+    
     useEffect(() => {
     localStorage.setItem('activeCycleId', activeCycleId);
     localStorage.setItem('cycleChecklist', JSON.stringify(cycleChecklist));
@@ -555,7 +573,15 @@ function App() {
     const { data } = await supabase.from('missions').select('*').order('created_at', { ascending: false });
     setMissions(data || []);
   };
-
+const onDeleteMission = async (missionId) => {
+    try {
+      await axios.delete(`${API_URL}/missions/${missionId}`);
+      alert("Dossier supprimé définitivement.");
+      fetchMissions(); // On rafraîchit la liste
+    } catch (e) {
+      alert("Erreur lors de la suppression.");
+    }
+  };
   const createMission = async (form) => {
     setLoading(true);
     try {
@@ -610,10 +636,23 @@ function App() {
     } catch (e) { alert("Erreur données."); } finally { setLoading(false); }
   };
 
-  const handleDownloadReport = (format) => {
+ const handleDownloadReport = (format) => {
     if (!selectedMission) return;
-    window.open(`${API_URL}/export/${selectedMission.id}?format=${format}`, '_blank');
-  };
+    
+    // On construit l'URL avec les paramètres nécessaires
+    const downloadUrl = `${API_URL}/export/${selectedMission.id}?format=${format}&user_id=${session.user.id}`;
+    
+    // MÉTHODE PRO : On crée un lien invisible et on clique dessus une seule fois
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.setAttribute('download', `Rapport_${selectedMission.raison_sociale}.${format}`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // On ne fait PAS de setView ou de changement d'état ici pour éviter la boucle
+    console.log(`Téléchargement ${format} lancé une seule fois.`);
+};
 
   // --- NAVIGATION MENU INTELLIGENTE ---
   const toggleSection = (sectionId) => {
@@ -828,7 +867,16 @@ const handleMenuItemClick = (item) => {
 
         {view === 'DASHBOARD' && <DashboardView missions={missions} />}
         {view === 'NEW' && <NewMissionView onCreate={createMission} loading={loading} />}
-        {view === 'LIST' && <MissionsListView missions={missions} onSelectMission={fetchAnomalies} onUpload={handleUpload} uploadingId={uploadingId} />}
+        {view === 'LIST' && (
+        <MissionsListView 
+            missions={missions} 
+            onSelectMission={fetchAnomalies} 
+            onUpload={handleUpload} 
+            uploadingId={uploadingId} 
+            userRole={userRole} // <--- AJOUTER CECI
+            onDeleteMission={onDeleteMission} // <--- AJOUTER CECI
+        />
+        )}
         {/* --- NOUVEAUX ÉCRANS D'IMPORTATION --- */}
             {view === 'import_fec' && (
             <div className="max-w-4xl mx-auto p-8 bg-white rounded-[30px] shadow-sm border border-slate-100 animate-in fade-in duration-500">
@@ -916,6 +964,7 @@ const handleMenuItemClick = (item) => {
         {view === 'FINAL_REVISION' && selectedMission && <FinalRevisionView mission={selectedMission} session={session} />}
         {view === 'ANALYTICS' && selectedMission && <DashboardAnalyticsView mission={selectedMission} />}
         {view === 'MAPPING' && selectedMission && <RiskMappingView mission={selectedMission} />}
+        
       </div>
 
       {selectedMission && <ChatBot missionId={selectedMission.id} />}
