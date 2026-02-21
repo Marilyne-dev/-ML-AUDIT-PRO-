@@ -30,12 +30,11 @@ export const MENU_STRUCTURE = [
   },
   {
     id: 'section_3',
-    title: "3. ANALYSE ML",
+    title: "3. ANALYSE IA & COCKPIT",
     icon: Search,
     items: [
-      { id: 'analysis_global', label: 'Analyse Complète', active: true },
-      { id: 'benford', label: 'Analyse Benford', active: true },
-      { id: 'ml_metrics', label: 'Métriques Modèle', active: true }
+      { id: 'dashboard_analytics', label: 'Dashboard & Cartographie PRO', active: true },
+      { id: 'benford', label: 'Analyse Loi de Benford', active: true }
     ]
   },
   {
@@ -81,28 +80,10 @@ export const MENU_STRUCTURE = [
       { id: 'conventions', label: 'Conventions Réglementées', active: true }
     ]
   },
-  {
-    id: 'section_8',
-    title: "8. CONFIGURATION",
-    icon: Settings,
-    items: [
-      { id: 'config_ml', label: 'Paramètres ML', active: true },
-      
-    ]
-  },
-  {
-    id: 'section_9',
-    title: "9. AIDE",
-    icon: HelpCircle,
-    items: [
-      
-      { id: 'about', label: 'À propos', active: true }
-    ]
-  },
 
   {
     id: 'section_circu', // NOUVELLE SECTION
-    title: "9.CIRCULARISATION",
+    title: "8.CIRCULARISATION",
     icon: Mail,
     items: [
       { id: 'circu_clients', label: 'Confirmation Clients', active: true },
@@ -112,7 +93,7 @@ export const MENU_STRUCTURE = [
 
   {
     id: 'section_cycle_detail', // Nouvel ID
-    title: "10. TRAVAUX PAR CYCLE (SIGLES)",
+    title: "9. TRAVAUX PAR CYCLE (SIGLES)",
     icon: BarChart3,
     items: [
       { id: 'cycle_C01', label: 'C01 - Ventes & Clients', active: true },
@@ -128,6 +109,25 @@ export const MENU_STRUCTURE = [
       { id: 'cycle_C11', label: 'C11 - Contrôle Interne', active: true },
 
       // Tu peux ajouter les autres C06 à C11 ici plus tard
+    ]
+  },
+
+  {
+    id: 'section_8',
+    title: " CONFIGURATION",
+    icon: Settings,
+    items: [
+      { id: 'config_ml', label: 'Paramètres ML', active: true },
+      
+    ]
+  },
+  {
+    id: 'section_9',
+    title: "AIDE",
+    icon: HelpCircle,
+    items: [
+      
+      { id: 'about', label: 'À propos', active: true }
     ]
   },
 ];

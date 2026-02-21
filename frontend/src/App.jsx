@@ -19,6 +19,8 @@ import CycleDetailView from './CycleDetailView';
 import KnowledgeView from './KnowledgeView';
 import MissionLetterView from './MissionLetterView';
 import FinalRevisionView from './FinalRevisionView';
+import DashboardAnalyticsView from './DashboardAnalyticsView';
+import RiskMappingView from './RiskMappingView';
 
 
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
@@ -715,6 +717,9 @@ const handleMenuItemClick = (item) => {
         if (selectedMission) setView('FINAL_REVISION');
         else { alert("Sélectionnez un dossier"); setView('LIST'); }
     }
+
+    else if (item.id === 'dashboard_analytics') setView('ANALYTICS');
+    else if (item.id === 'risk_mapping') setView('MAPPING');
         
     // Ferme le menu sur mobile après un clic
     if (window.innerWidth < 1024) setIsMenuOpen(false);
@@ -909,6 +914,8 @@ const handleMenuItemClick = (item) => {
         {view === 'KNOWLEDGE' && selectedMission && <KnowledgeView mission={selectedMission} session={session} />}
         {view === 'LETTER' && selectedMission && <MissionLetterView mission={selectedMission} />}
         {view === 'FINAL_REVISION' && selectedMission && <FinalRevisionView mission={selectedMission} session={session} />}
+        {view === 'ANALYTICS' && selectedMission && <DashboardAnalyticsView mission={selectedMission} />}
+        {view === 'MAPPING' && selectedMission && <RiskMappingView mission={selectedMission} />}
       </div>
 
       {selectedMission && <ChatBot missionId={selectedMission.id} />}
