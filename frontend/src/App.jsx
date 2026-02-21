@@ -83,7 +83,7 @@ const NewMissionView = ({ onCreate, loading }) => {
 };
 
 // 3. LISTE DES MISSIONS (INTERFACE D'IMPORT SIMPLIFIÉE)
-const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId, userRole, onDeleteMission }) => (
+const MissionsListView = ({ missions, onSelectMission, onUpload, uploadingId, userRole, onDeleteMission, setView }) => (
   <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in zoom-in duration-300">
     
     <div className="bg-blue-600 text-white p-8 rounded-[30px] shadow-xl mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -514,67 +514,33 @@ function App() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Navigation & Menu
+  // 1. DÉCLARATION DES ÉTATS (TOUJOURS EN PREMIER)
   const [view, setView] = useState(localStorage.getItem('currentView') || 'DASHBOARD');
-  const [reportType, setReportType] = useState(null); // <--- AJOUTE CETTE LIGNE ICI
+  const [reportType, setReportType] = useState(null);
   const [filterCategory, setFilterCategory] = useState('ALL');
-  
   const [expandedSection, setExpandedSection] = useState(null);
   const [showFullMenu, setShowFullMenu] = useState(true);
-  
-  const [userRole, setUserRole] = useState('client');
-  const [isAdminLoginForm, setIsAdminLoginForm] = useState(false);
+  const [userRole, setUserRole] = useState('collaborateur'); // Changé 'client' en 'collaborateur' selon l'audio
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
   const [missions, setMissions] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
- const [selectedMission, setSelectedMission] = useState(JSON.parse(localStorage.getItem('selectedMission')) || null);
- useEffect(() => {
-    localStorage.setItem('currentView', view);
-    localStorage.setItem('activeCycleId', activeCycleId);
-    if (selectedMission) {
-        localStorage.setItem('selectedMission', JSON.stringify(selectedMission));
-    }
-  }, [view, activeCycleId, selectedMission]);
+  const [selectedMission, setSelectedMission] = useState(JSON.parse(localStorage.getItem('selectedMission')) || null);
   const [uploadingId, setUploadingId] = useState(null);
-  // --- BLOC DE SAUVEGARDE AUTOMATIQUE (PERSISTANCE) ---
-  useEffect(() => {
-    // On sauve la vue actuelle (ex: KNOWLEDGE, FINAL_REVISION...)
-    localStorage.setItem('currentView', view);
-    
-    // On sauve l'ID du cycle si on est dans un sigle
-    if (activeCycleId) localStorage.setItem('activeCycleId', activeCycleId);
-    
-    // On sauve la mission sélectionnée pour ne pas la perdre au refresh
-    if (selectedMission) {
-        localStorage.setItem('selectedMission', JSON.stringify(selectedMission));
-    }
-  }, [view, activeCycleId, selectedMission]); 
-  // Ce code s'exécute tout seul dès qu'une de ces 3 variables change
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const ADMIN_EMAILS = ['marilyneambossou@gmail.com', 'contact@rvj-audit.com'];
+  const [activeCycleId, setActiveCycleId] = useState(localStorage.getItem('activeCycleId') || null);
+  const [cycleChecklist, setCycleChecklist] = useState(JSON.parse(localStorage.getItem('cycleChecklist')) || {});
 
-  // On récupère le cycle actif depuis le stockage du navigateur pour la persistance
-     const [activeCycleId, setActiveCycleId] = useState(localStorage.getItem('activeCycleId') || null);
-    const [cycleChecklist, setCycleChecklist] = useState(JSON.parse(localStorage.getItem('cycleChecklist')) || {});
-
-
-    
-    useEffect(() => {
-    localStorage.setItem('activeCycleId', activeCycleId);
-    localStorage.setItem('cycleChecklist', JSON.stringify(cycleChecklist));
-}, [activeCycleId, cycleChecklist]);
-    
+  // 2. EFFETS DE PERSISTANCE (APRÈS LES STATES)
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) checkUser(session.user);
-    });
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) checkUser(session.user);
-    });
-  }, []);
+    localStorage.setItem('currentView', view);
+    if (activeCycleId) localStorage.setItem('activeCycleId', activeCycleId);
+    localStorage.setItem('cycleChecklist', JSON.stringify(cycleChecklist));
+    if (selectedMission) {
+      localStorage.setItem('selectedMission', JSON.stringify(selectedMission));
+    }
+  }, [view, activeCycleId, selectedMission, cycleChecklist]);
+
+  // ... le reste de tes useEffect (auth, fetchMissions) vient ICI
 
   const checkUser = (user) => {
     if (ADMIN_EMAILS.includes(user.email)) setUserRole('admin');
@@ -584,8 +550,12 @@ function App() {
   useEffect(() => { if (session) fetchMissions(); }, [session, userRole]);
 
   const fetchMissions = async () => {
-    const { data } = await supabase.from('missions').select('*').order('created_at', { ascending: false });
-    setMissions(data || []);
+    // Si Admin : voit tout. Si Collaborateur : voit ses dossiers.
+    const route = userRole === 'admin' ? '/admin/all-missions' : `/missions?user_id=${session.user.id}`;
+    try {
+      const { data } = await axios.get(`${API_URL}${route}`);
+      setMissions(data || []);
+    } catch (e) { console.error("Erreur chargement missions"); }
   };
 const onDeleteMission = async (missionId) => {
     try {
@@ -887,8 +857,9 @@ const handleMenuItemClick = (item) => {
             onSelectMission={fetchAnomalies} 
             onUpload={handleUpload} 
             uploadingId={uploadingId} 
-            userRole={userRole} // <--- AJOUTER CECI
-            onDeleteMission={onDeleteMission} // <--- AJOUTER CECI
+            userRole={userRole} 
+            onDeleteMission={onDeleteMission}
+            setView={setView}
         />
         )}
         {/* --- NOUVEAUX ÉCRANS D'IMPORTATION --- */}

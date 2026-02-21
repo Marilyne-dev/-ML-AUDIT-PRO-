@@ -921,6 +921,7 @@ async def get_advanced_stats(mission_id: str):
 
 
  # --- 1. SUPPRIMER UNE MISSION (POUR L'ADMIN) ---
+# --- 1. SUPPRIMER UNE MISSION (CORRIGÉ) ---
 @app.delete("/missions/{mission_id}")
 async def delete_mission(mission_id: str):
     try:
@@ -928,16 +929,14 @@ async def delete_mission(mission_id: str):
         res = supabase.table("missions").delete().eq("id", mission_id).execute()
         return {"success": True, "message": "Mission supprimée"}
     except Exception as e:
-        print(f"Erreur suppression: {e}")
+        print(f"Erreur suppression: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# --- 2. VOIR TOUTES LES MISSIONS DE TOUS LES USERS (POUR L'ADMIN) ---
+# --- 2. VOIR TOUTES LES MISSIONS (ADMIN) ---
 @app.get("/admin/all-missions")
 async def get_all_missions_admin():
-    # L'admin voit tout, sans filtre sur le user_id
     res = supabase.table("missions").select("*").order('created_at', { 'ascending': False }).execute()
-    return res.data       
+    return res.data
 
 
 
