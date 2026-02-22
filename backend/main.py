@@ -931,11 +931,18 @@ async def delete_mission(mission_id: str):
     except Exception as e:
         print(f"Erreur suppression: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 # --- 2. VOIR TOUTES LES MISSIONS (ADMIN) ---
+
+
 @app.get("/admin/all-missions")
 async def get_all_missions_admin():
-    res = supabase.table("missions").select("*").order('created_at', { 'ascending': False }).execute()
+    res = (
+        supabase
+        .table("missions")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
     return res.data
 
 
