@@ -950,10 +950,10 @@ async def get_all_missions_admin():
  # --- EXEMPLE : RÉCUPÉRER UNIQUEMENT SES MISSIONS ---
 @app.get("/missions")
 async def get_missions(user_id: str = None):
-    # Si on passe un user_id, on filtre. Sinon (pour l'admin), on peut tout envoyer
     query = supabase.table("missions").select("*")
+
     if user_id and user_id != "undefined":
         query = query.eq("user_id", user_id)
-    
-    res = query.order('created_at', { 'ascending': False }).execute()
+
+    res = query.order("created_at", desc=True).execute()
     return res.data
