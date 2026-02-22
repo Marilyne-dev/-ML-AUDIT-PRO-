@@ -53,27 +53,38 @@ class QuestionRequest(BaseModel):
 # ---------------------------------------------------------
 # 3. ROUTE : CRÉER UNE MISSION
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# 3. ROUTE : CRÉER UNE MISSION (CORRIGÉE AVEC PÉRIODES)
+# ---------------------------------------------------------
 @app.post("/missions")
 async def create_mission_v4(data: dict):
     user_id = data.get('user_id')
     if not user_id:
         raise HTTPException(status_code=400, detail="ID Utilisateur manquant") 
+    
     ca = float(data.get('chiffre_affaires_n', 0))
     res_net = float(data.get('resultat_net_n', 0))
     bilan = float(data.get('total_bilan', 0))
 
-    # Calcul des seuils ISA 320
     s_signif = max(ca * 0.01, res_net * 0.05, bilan * 0.005)
     if s_signif == 0: s_signif = 1000
 
-    # Gestion de l'année
+    # NOUVEAU : Gestion sécurisée de la période (ex: "01/05/2025 au 30/04/2026")
     annee_txt = data.get('exercice_comptable', '2025')
-    try: annee_int = int(annee_txt)
-    except: annee_int = 2025
+    try: 
+        # Si c'est juste une année classique
+        annee_int = int(annee_txt)
+    except ValueError: 
+        # Si c'est une période, on extrait les 4 derniers chiffres (l'année de fin)
+        try:
+            annee_int = int(annee_txt[-4:])
+        except:
+            annee_int = 2025
 
     mission_v4 = {
+        "user_id": user_id,
         "raison_sociale": data.get('raison_sociale'),
-        "exercice_comptable": annee_txt,
+        "exercice_comptable": annee_txt, # Ex: "01/05/2025 au 30/04/2026"
         "exercice_n": annee_int,
         "chiffre_affaires_n": ca,
         "resultat_net_n": res_net,
@@ -90,9 +101,8 @@ async def create_mission_v4(data: dict):
         res = supabase.table("missions").insert(mission_v4).execute()
         return res.data
     except Exception as e:
-        print(f"ERREUR SQL : {e}")
+        print(f"ERREUR SQL CRÉATION : {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ---------------------------------------------------------
 # 4. ROUTE : ANALYSE MULTI-FICHIERS (FEC, PDF, EXCEL)
@@ -927,38 +937,146 @@ async def get_advanced_stats(mission_id: str):
 
  # --- 1. SUPPRIMER UNE MISSION (POUR L'ADMIN) ---
 # --- 1. SUPPRIMER UNE MISSION (CORRIGÉ) ---
-@app.delete("/missions/{mission_id}")
-async def delete_mission(mission_id: str):
+# ---------------------------------------------------------
+# 3. ROUTE : CRÉER UNE MISSION (CORRIGÉE)
+# ---------------------------------------------------------
+@app.post("/missions")
+async def create_mission_v4(data: dict):
+    user_id = data.get('user_id')
+    if not user_id:
+        raise HTTPException(status_code=400, detail="ID Utilisateur manquant") 
+    
+    ca = float(data.get('chiffre_affaires_n', 0))
+    res_net = float(data.get('resultat_net_n', 0))
+    bilan = float(data.get('total_bilan', 0))
+
+    s_signif = max(ca * 0.01, res_net * 0.05, bilan * 0.005)
+    if s_signif == 0: s_signif = 1000
+
+    annee_txt = data.get('exercice_comptable', '2025')
+    try: annee_int = int(annee_txt)
+    except: annee_int = 2025
+
+    mission_v4 = {
+        "user_id": user_id,  # 🔥 LIGNE AJOUTÉE : Il manquait le user_id ici !
+        "raison_sociale": data.get('raison_sociale'),
+        "exercice_comptable": annee_txt,
+        "exercice_n": annee_int,
+        "chiffre_affaires_n": ca,
+        "resultat_net_n": res_net,
+        "total_bilan": bilan,
+        "seuil_signification": round(s_signif, 2),
+        "seuil_planification": round(s_signif * 0.75, 2),
+        "seuil_remontee": round(s_signif * 0.05, 2),
+        "client_email": data.get('client_email'),
+        "statut": "Initialisée",
+        "download_count": 0
+    }
+
     try:
-        # On supprime la mission dans Supabase
-        res = supabase.table("missions").delete().eq("id", mission_id).execute()
-        return {"success": True, "message": "Mission supprimée"}
+        res = supabase.table("missions").insert(mission_v4).execute()
+        return res.data
     except Exception as e:
-        print(f"Erreur suppression: {str(e)}")
+        print(f"ERREUR SQL CRÉATION : {e}")
         raise HTTPException(status_code=500, detail=str(e))
-# --- 2. VOIR TOUTES LES MISSIONS (ADMIN) ---
 
-
+# ---------------------------------------------------------
+# ROUTE : VOIR TOUTES LES MISSIONS (ADMIN) (SÉCURISÉE)
+# ---------------------------------------------------------
 @app.get("/admin/all-missions")
 async def get_all_missions_admin():
-    res = (
-        supabase
-        .table("missions")
-        .select("*")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return res.data
+    try:
+        res = supabase.table("missions").select("*").order("created_at", desc=True).execute()
+        return res.data
+    except Exception as e:
+        print(f"ERREUR SQL ADMIN MISSIONS : {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-
- # --- EXEMPLE : RÉCUPÉRER UNIQUEMENT SES MISSIONS ---
+# ---------------------------------------------------------
+# ROUTE : RÉCUPÉRER UNIQUEMENT SES MISSIONS (SÉCURISÉE)
+# ---------------------------------------------------------
 @app.get("/missions")
 async def get_missions(user_id: str = None):
-    query = supabase.table("missions").select("*")
+    try:
+        query = supabase.table("missions").select("*")
+        if user_id and user_id != "undefined":
+            query = query.eq("user_id", user_id)
+        res = query.order("created_at", desc=True).execute()
+        return res.data
+    except Exception as e:
+        print(f"ERREUR SQL MISSIONS COLLAB : {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    if user_id and user_id != "undefined":
-        query = query.eq("user_id", user_id)
 
-    res = query.order("created_at", desc=True).execute()
-    return res.data
+
+
+
+
+
+# =========================================================
+# NOUVEAU : GÉNÉRATION DU RAPPORT CAC ET OPINION VIA IA
+# =========================================================
+
+@app.post("/generate-report-cac/{mission_id}")
+async def generate_report_cac(mission_id: str):
+    # Récupérer mission et anomalies
+    m = supabase.table("missions").select("*").eq("id", mission_id).execute()
+    a = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
+    if not m.data: 
+        raise HTTPException(status_code=404, detail="Mission non trouvée")
+    
+    mission = m.data[0]
+    anomalies = a.data or []
+    total_erreurs = sum([(float(anom.get('montant') or 0)) for anom in anomalies])
+    
+    prompt = f"""
+    Agis en tant que Commissaire aux Comptes (CAC) expert. Rédige le 'Rapport du Commissaire aux Comptes sur les comptes annuels' complet.
+    
+    DONNÉES DU DOSSIER :
+    - Société : {mission['raison_sociale']}
+    - Exercice clos le : 31/12/{mission['exercice_comptable']}
+    - Total Bilan : {mission['total_bilan']} €
+    - Chiffre d'Affaires : {mission['chiffre_affaires_n']} €
+    - Seuil de signification : {mission['seuil_signification']} €
+    - Cumul des anomalies détectées : {total_erreurs} €
+    
+    CONSIGNES DE RÉDACTION :
+    1. Structure officielle : Opinion, Fondement de l'opinion, Justification des appréciations, Vérifications spécifiques.
+    2. Adapte l'opinion (avec réserve, sans réserve, ou refus) en comparant le cumul des anomalies ({total_erreurs}€) au seuil de signification ({mission['seuil_signification']}€).
+    3. Ne laisse aucun crochet [Texte]. Sois formel, précis et professionnel.
+    4. Rédige en HTML élégant (utilise <h3>, <p>, <ul>, <strong>).
+    """
+    
+    engine = AuditEngine(mission_id)
+    report_html = await ask_claude_general(prompt, engine.api_key)
+    return {"html": report_html}
+
+@app.post("/generate-opinion/{mission_id}")
+async def generate_opinion(mission_id: str):
+    m = supabase.table("missions").select("*").eq("id", mission_id).execute()
+    a = supabase.table("anomalies").select("*").eq("mission_id", mission_id).execute()
+    if not m.data: 
+        raise HTTPException(status_code=404, detail="Mission non trouvée")
+    
+    mission = m.data[0]
+    anomalies = a.data or []
+    anomalies_critiques = [a for a in anomalies if a.get('niveau_criticite') == 'CRITIQUE']
+    total_erreurs = sum([(float(anom.get('montant') or 0)) for anom in anomalies])
+    
+    prompt = f"""
+    Agis en tant que Commissaire aux Comptes. Rédige UNIQUEMENT la section "OPINION D'AUDIT" pour la société {mission['raison_sociale']} (Exercice {mission['exercice_comptable']}).
+    
+    CONTEXTE :
+    - Seuil de signification : {mission['seuil_signification']} €
+    - Cumul total des anomalies : {total_erreurs} €
+    - Nombre d'anomalies critiques : {len(anomalies_critiques)}
+    
+    CONSIGNE :
+    Détermine si l'opinion doit être "Sans réserve", "Avec réserve", ou "Refus de certifier" basé strictement sur ces chiffres.
+    Rédige le texte officiel de l'opinion en justifiant clairement la décision technique.
+    Format attendu : HTML propre et professionnel (avec <h3>, <p>, <ul>).
+    """
+    
+    engine = AuditEngine(mission_id)
+    opinion_html = await ask_claude_general(prompt, engine.api_key)
+    return {"html": opinion_html}        

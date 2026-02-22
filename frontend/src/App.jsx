@@ -23,9 +23,10 @@ import DashboardAnalyticsView from './DashboardAnalyticsView';
 import RiskMappingView from './RiskMappingView';
 
 
-const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ? "http://127.0.0.1:8000"
-  : "https://ml-audit-pro.onrender.com";
+const API_URL = window.location.hostname === "localhost" 
+  ? "http://localhost:8000" 
+  : (window.location.hostname === "127.0.0.1" ? "http://127.0.0.1:8000" : "https://ml-audit-pro.onrender.com");
+
 
 // ============================================================================
 // COMPOSANTS INTERNES (VUES SPÉCIFIQUES À APP.JSX)
@@ -61,20 +62,40 @@ const DashboardView = ({ missions }) => (
 );
 
 // 2. NOUVELLE MISSION
+// 2. NOUVELLE MISSION (MODIFIÉ : Ajout des dates de début et de fin, rien n'a été enlevé)
 const NewMissionView = ({ onCreate, loading }) => {
-    const [form, setForm] = useState({ raisonSociale: '', exercice: '2025', ca: '', resultat: '', bilan: '' });
+    // On garde l'existant et on AJOUTE dateDebut et dateFin
+    const [form, setForm] = useState({ raisonSociale: '', dateDebut: '', dateFin: '', exercice: '2025', ca: '', resultat: '', bilan: '' });
+    
     return (
         <div className="max-w-3xl mx-auto bg-white p-8 rounded-[40px] shadow-xl border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
             <h3 className="text-2xl font-black mb-6 flex items-center gap-3"><PlusCircle className="text-blue-600"/> Nouvelle Mission</h3>
             <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                
+                {/* LIGNE 1 : Raison sociale et Périodes */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <input type="text" placeholder="Raison Sociale" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.raisonSociale} onChange={e => setForm({...form, raisonSociale: e.target.value})} />
-                    <input type="text" placeholder="Exercice (2025)" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.exercice} onChange={e => setForm({...form, exercice: e.target.value})} />
+                    
+                    {/* NOUVEAU : Champ Date de début */}
+                    <div className="flex items-center gap-2 bg-slate-50 rounded-xl border px-3 focus-within:border-blue-500">
+                        <span className="text-xs text-slate-400 font-bold">Du</span>
+                        <input type="date" className="bg-transparent outline-none text-sm w-full" value={form.dateDebut} onChange={e => setForm({...form, dateDebut: e.target.value})} />
+                    </div>
+                    
+                    {/* NOUVEAU : Champ Date de fin */}
+                    <div className="flex items-center gap-2 bg-slate-50 rounded-xl border px-3 focus-within:border-blue-500">
+                        <span className="text-xs text-slate-400 font-bold">Au</span>
+                        <input type="date" className="bg-transparent outline-none text-sm w-full" value={form.dateFin} onChange={e => setForm({...form, dateFin: e.target.value})} />
+                    </div>
                 </div>
+
+                {/* LIGNE 2 : CA et Résultat (Intact) */}
                 <div className="grid grid-cols-2 gap-4">
                     <input type="number" placeholder="CA (N)" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.ca} onChange={e => setForm({...form, ca: e.target.value})} />
                     <input type="number" placeholder="Résultat Net" className="p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.resultat} onChange={e => setForm({...form, resultat: e.target.value})} />
                 </div>
+                
+                {/* LIGNE 3 : Total bilan et Bouton (Intact) */}
                 <input type="number" placeholder="Total Bilan" className="w-full p-3 bg-slate-50 rounded-xl text-sm outline-none border focus:border-blue-500" value={form.bilan} onChange={e => setForm({...form, bilan: e.target.value})} />
                 <button disabled={loading} onClick={() => onCreate(form)} className="w-full mt-4 bg-blue-600 text-white p-4 rounded-2xl font-black hover:bg-blue-700 transition disabled:opacity-50">CALCULER SEUILS & CRÉER</button>
             </div>
@@ -325,54 +346,112 @@ const MLMetricsView = () => (
 // --- VUE GÉNÉRATION RAPPORTS ---
 // 5. GÉNÉRATION RAPPORTS (CORRIGÉ)
 // --- VUE DÉDIÉE POUR CHAQUE TYPE DE RAPPORT ---
+// --- VUE GÉNÉRATION RAPPORTS IA (CAC & OPINION) ---
 const SingleReportView = ({ mission, reportType }) => {
+    const [generatedContent, setGeneratedContent] = useState(null);
+    const [isGenerating, setIsGenerating] = useState(false);
+
     if (!mission) return <div className="text-center p-10 text-slate-400">Veuillez sélectionner un dossier.</div>;
 
-    // Configuration dynamique selon le bouton cliqué
+    // Configuration dynamique selon le bouton du menu
     let config = {};
     if (reportType === 'report_cac') {
         config = { 
             title: "Rapport d'Audit Légal (CAC)", 
-            desc: "Génération du document PDF officiel avec l'ensemble des seuils et anomalies.",
-            format: 'pdf', 
+            desc: "L'IA rédigera le rapport complet du Commissaire aux Comptes basé sur vos anomalies et seuils.",
             icon: <FileText size={40} className="text-red-500"/>, 
-            bg: 'bg-red-50', border: 'border-red-200', btn: 'bg-red-600 hover:bg-red-700' 
-        };
-    } else if (reportType === 'report_synthese') {
-        config = { 
-            title: "Synthèse Exécutive", 
-            desc: "Génération du tableau Excel reprenant toutes les données et chiffres clés.",
-            format: 'xlsx', 
-            icon: <PieChart size={40} className="text-blue-500"/>, 
-            bg: 'bg-blue-50', border: 'border-blue-200', btn: 'bg-blue-600 hover:bg-blue-700' 
+            bg: 'bg-red-50', border: 'border-red-200', btn: 'bg-red-600 hover:bg-red-700',
+            endpoint: '/generate-report-cac'
         };
     } else {
         config = { 
-            title: "Recommandation Opinion", 
-            desc: "Génération du brouillon texte basé sur les risques détectés par l'IA.",
-            format: 'txt', 
+            title: "Opinion d'Audit Officielle", 
+            desc: "L'IA calculera les anomalies et proposera la certification (sans réserve, avec réserve, ou refus).",
             icon: <CheckCircle size={40} className="text-green-500"/>, 
-            bg: 'bg-green-50', border: 'border-green-200', btn: 'bg-green-600 hover:bg-green-700' 
+            bg: 'bg-green-50', border: 'border-green-200', btn: 'bg-green-600 hover:bg-green-700',
+            endpoint: '/generate-opinion'
         };
     }
 
+    const handleGenerate = async () => {
+        setIsGenerating(true);
+        try {
+            const { data } = await axios.post(`${API_URL}${config.endpoint}/${mission.id}`);
+            setGeneratedContent(data.html);
+        } catch (error) {
+            console.error(error);
+            alert("Erreur lors de la rédaction par l'IA. Vérifiez votre connexion.");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    const handlePrint = () => {
+        const printWindow = window.open('', '', 'width=800,height=900');
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>${config.title} - ${mission.raison_sociale}</title>
+                    <style>
+                        body { font-family: 'Times New Roman', serif; padding: 40px; line-height: 1.6; color: #000; }
+                        h3 { color: #1e293b; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+                        p { text-align: justify; margin-bottom: 15px; }
+                        .header { text-align: center; margin-bottom: 50px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h2>CABINET ML-AUDIT PRO</h2>
+                        <p>Commissariat aux Comptes</p>
+                        <hr/>
+                    </div>
+                    ${generatedContent}
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        setTimeout(() => printWindow.print(), 500); // Laisse le temps au HTML de charger
+    };
+
     return (
-        <div className="max-w-2xl mx-auto animate-in fade-in zoom-in duration-300 mt-10">
-            <div className={`p-10 rounded-[40px] shadow-sm border ${config.border} bg-white text-center`}>
+        <div className="max-w-4xl mx-auto animate-in fade-in zoom-in duration-300 mt-10">
+            <div className={`p-10 rounded-[40px] shadow-sm border ${config.border} bg-white text-center mb-8`}>
                 <div className={`w-24 h-24 mx-auto rounded-full ${config.bg} flex items-center justify-center mb-6`}>
                     {config.icon}
                 </div>
                 <h2 className="text-3xl font-black text-slate-800 mb-4">{config.title}</h2>
-                <p className="text-slate-500 mb-2">Dossier : <strong>{mission.raison_sociale}</strong></p>
+                <p className="text-slate-500 mb-2">Dossier : <strong className="uppercase">{mission.raison_sociale}</strong></p>
                 <p className="text-sm text-slate-400 mb-8">{config.desc}</p>
                 
-                <button 
-                    onClick={() => window.open(`${API_URL}/export/${mission.id}?format=${config.format}`)}
-                    className={`px-8 py-4 rounded-xl text-white font-black flex items-center justify-center gap-3 mx-auto transition shadow-lg w-full md:w-auto ${config.btn}`}
-                >
-                    <Download size={20}/> TÉLÉCHARGER LE DOCUMENT
-                </button>
+                {!generatedContent && (
+                    <button 
+                        onClick={handleGenerate}
+                        disabled={isGenerating}
+                        className={`px-8 py-4 rounded-xl text-white font-black flex items-center justify-center gap-3 mx-auto transition shadow-lg w-full md:w-auto ${config.btn} ${isGenerating ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 transform'}`}
+                    >
+                        {isGenerating ? "⏳ ANALYSE ET RÉDACTION EN COURS..." : "✨ GÉNÉRER LE DOCUMENT VIA L'IA"}
+                    </button>
+                )}
             </div>
+
+            {/* AFFICHAGE DU RÉSULTAT IA */}
+            {generatedContent && (
+                <div className="bg-white p-10 rounded-[40px] shadow-xl border border-slate-100 relative animate-in slide-in-from-bottom-8">
+                    <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
+                        <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                            <CheckCircle className="text-green-500" size={20}/> Document prêt
+                        </h3>
+                        <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-800 text-white px-5 py-3 rounded-xl text-xs font-bold hover:bg-slate-900 transition shadow-md">
+                            <Download size={16}/> IMPRIMER / SAUVEGARDER PDF
+                        </button>
+                    </div>
+                    
+                    <div 
+                        dangerouslySetInnerHTML={{ __html: generatedContent }} 
+                        className="prose max-w-none text-sm text-slate-700 leading-relaxed" 
+                    />
+                </div>
+            )}
         </div>
     );
 };
@@ -563,14 +642,25 @@ function App() {
 
   useEffect(() => { if (session) fetchMissions(); }, [session, userRole]);
 
-  const fetchMissions = async () => {
+ const fetchMissions = async () => {
     // Si Admin : voit tout. Si Collaborateur : voit ses dossiers.
     const route = userRole === 'admin' ? '/admin/all-missions' : `/missions?user_id=${session.user.id}`;
+    
     try {
-      const { data } = await axios.get(`${API_URL}${route}`);
-      setMissions(data || []);
-    } catch (e) { console.error("Erreur chargement missions"); }
-  };
+        const response = await axios.get(`${API_URL}${route}`);
+        setMissions(response.data || []);
+    } catch (e) { 
+        console.error("Erreur détaillée chargement missions :", e.response ? e.response.data : e.message);
+        // Affiche un petit message rouge dans la console pour t'aider à débugger
+        console.warn(`L'API backend est injoignable sur l'URL : ${API_URL}${route}`);
+        
+        // Alerte visuelle pour que tu saches qu'il y a un problème de connexion
+        if(missions.length === 0) {
+            console.log("Vérifiez que le serveur Python est bien lancé avec : uvicorn main:app --reload");
+        }
+    }
+};
+
 const onDeleteMission = async (missionId) => {
     try {
       await axios.delete(`${API_URL}/missions/${missionId}`);
@@ -580,19 +670,31 @@ const onDeleteMission = async (missionId) => {
       alert("Erreur lors de la suppression.");
     }
   };
-  const createMission = async (form) => {
+
+  
+ const createMission = async (form) => {
     setLoading(true);
     try {
+      // NOUVEAU : Formatage intelligent de la période sans casser la base de données
+      // Ex: "01/05/2025 au 30/04/2026"
+      const exerciceFormatte = (form.dateDebut && form.dateFin) 
+        ? `${form.dateDebut.split('-').reverse().join('/')} au ${form.dateFin.split('-').reverse().join('/')}` 
+        : '2025';
+
       await axios.post(`${API_URL}/missions`, {
-        user_id: session.user.id,  // <--- ENVOYER L'ID DE LA SESSION
-        raison_sociale: form.raisonSociale, exercice_comptable: form.exercice,
-        chiffre_affaires_n: parseFloat(form.ca), resultat_net_n: parseFloat(form.resultat || 0),
-        total_bilan: parseFloat(form.bilan || 0), client_email: session.user.email
+        user_id: session.user.id,  
+        raison_sociale: form.raisonSociale, 
+        exercice_comptable: exerciceFormatte, // <--- On envoie la période complète ici
+        chiffre_affaires_n: parseFloat(form.ca), 
+        resultat_net_n: parseFloat(form.resultat || 0),
+        total_bilan: parseFloat(form.bilan || 0), 
+        client_email: session.user.email
       });
-      alert("Dossier créé !");
+      alert("Dossier créé avec succès !");
       fetchMissions(); setView('LIST');
     } catch (e) { alert("Erreur création."); } finally { setLoading(false); }
   };
+
 
  const handleUpload = async (mission, files, type = "FEC") => {
     // Supprime la ligne isolée ici
@@ -745,15 +847,28 @@ const handleMenuItemClick = (item) => {
     }
    
 
-        else if (item.id === 'lettre_mission') {
-        if (selectedMission) setView('LETTER');
-        else { alert("Sélectionnez un dossier"); setView('LIST'); }
+        // --- 5. RAPPORTS FINAUX ET DOCUMENTS OFFICIELS (RÉSERVÉS AU CAC / ADMIN) ---
+    // --- 5. RAPPORTS FINAUX ET DOCUMENTS OFFICIELS (RÉSERVÉS AU CAC / ADMIN) ---
+    else if (['lettre_mission', 'final_revision', 'report_cac', 'opinion'].includes(item.id)) {
+        // SÉCURITÉ : Est-ce l'administrateur ?
+        if (userRole !== 'admin') {
+            alert("🔒 Accès refusé : Seul le Commissaire aux Comptes a les droits pour générer et valider les documents finaux.");
+            return;
+        }
+
+        if (selectedMission) {
+            if (item.id === 'lettre_mission') setView('LETTER');
+            else if (item.id === 'final_revision') setView('FINAL_REVISION');
+            else {
+                setReportType(item.id); // 'report_cac' ou 'opinion'
+                setView('SINGLE_REPORT');
+            }
+        } else { 
+            alert("Veuillez d'abord sélectionner un dossier."); 
+            setView('LIST'); 
+        }
     }
 
-        else if (item.id === 'final_revision') {
-        if (selectedMission) setView('FINAL_REVISION');
-        else { alert("Sélectionnez un dossier"); setView('LIST'); }
-    }
 
     else if (item.id === 'dashboard_analytics') setView('ANALYTICS');
     else if (item.id === 'risk_mapping') setView('MAPPING');
@@ -796,8 +911,8 @@ const handleMenuItemClick = (item) => {
         </div>
 
         <div className="mb-6 px-4 py-3 bg-slate-800 rounded-2xl border border-slate-700">
-            <div className={`inline-flex items-center gap-2 px-2 py-1 rounded text-[10px] font-black uppercase ${userRole === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
-                {userRole === 'admin' ? 'ADMIN' : 'CLIENT'}
+            <div className={`inline-flex items-center gap-2 px-2 py-1 rounded text-[9px] font-black uppercase text-center ${userRole === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                {userRole === 'admin' ? 'COMMISSAIRE AUX COMPTES' : 'COLLABORATEUR'}
             </div>
             <p className="text-xs text-slate-300 mt-1 truncate">{session.user.email}</p>
         </div>
