@@ -6,12 +6,17 @@ from supabase import create_client, Client
 load_dotenv()
 
 url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
+key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
-# Créer le client Supabase
+if not url or not key:
+    raise Exception("❌ Variables d'environnement Supabase manquantes")
+
+# Créer le client Supabase avec la service role key
 supabase: Client = create_client(url, key)
 
 def get_client():
     return supabase
 
-print("✅ Connexion à Supabase configurée !")
+print("✅ Connexion sécurisée à Supabase configurée !")
+print("URL:", url)
+print("KEY exists:", bool(key))

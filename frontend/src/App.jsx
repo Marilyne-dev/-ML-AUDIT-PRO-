@@ -23,6 +23,7 @@ import DashboardAnalyticsView from './DashboardAnalyticsView';
 import RiskMappingView from './RiskMappingView';
 
 
+
 const API_URL = window.location.hostname === "localhost" 
   ? "http://localhost:8000" 
   : (window.location.hostname === "127.0.0.1" ? "http://127.0.0.1:8000" : "https://ml-audit-pro.onrender.com");
@@ -643,6 +644,8 @@ function App() {
   useEffect(() => { if (session) fetchMissions(); }, [session, userRole]);
 
  const fetchMissions = async () => {
+    console.log("userRole =", userRole);
+    console.log("session =", session);
     // Si Admin : voit tout. Si Collaborateur : voit ses dossiers.
     const route = userRole === 'admin' ? '/admin/all-missions' : `/missions?user_id=${session.user.id}`;
     
