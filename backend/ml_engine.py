@@ -9,7 +9,7 @@ import openpyxl
 from io import BytesIO
 import asyncio
 
-CLAUDE_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 # Fonction asynchrone pour le Chatbot (utilisée par main.py)
 async def ask_claude_general(prompt, api_key):
