@@ -9,6 +9,8 @@ import openpyxl
 from io import BytesIO
 import asyncio
 
+CLAUDE_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+
 # Fonction asynchrone pour le Chatbot (utilisée par main.py)
 async def ask_claude_general(prompt, api_key):
     if not api_key:
@@ -20,7 +22,7 @@ async def ask_claude_general(prompt, api_key):
         # Appel Claude (async)
         response = await asyncio.to_thread(
             lambda: client.messages.create(
-                model="claude-3-haiku-20240307", # Modèle rapide et compatible
+                model=CLAUDE_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1000,
                 temperature=0.7
@@ -204,7 +206,7 @@ class AuditEngine:
 
         try:
             message = self.claude_client.messages.create(
-                model="claude-3-haiku-20240307",
+                model=CLAUDE_MODEL,
                 max_tokens=2000,
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
@@ -281,7 +283,7 @@ class AuditEngine:
             # OPTIMISATION : On utilise asyncio pour ne pas bloquer le serveur
             response = await asyncio.to_thread(
                 lambda: self.claude_client.messages.create(
-                    model="claude-3-haiku-20240307", 
+                    model=CLAUDE_MODEL, 
                     max_tokens=3000,
                     temperature=0,
                     messages=[{"role": "user", "content": prompt}]
@@ -308,7 +310,7 @@ class AuditEngine:
         """
         try:
             message = self.claude_client.messages.create(
-                model="claude-3-haiku-20240307", 
+                model=CLAUDE_MODEL, 
                 max_tokens=2500,
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
