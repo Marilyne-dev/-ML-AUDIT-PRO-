@@ -3,6 +3,8 @@ import axios from 'axios';
 import { Mail, Upload, Send, AlertTriangle, CheckCircle, Activity, Clock, FileCheck } from 'lucide-react';
 import { Editor } from '@tinymce/tinymce-react';
 
+axios.defaults.timeout = 30000;
+
 const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
   ? "http://127.0.0.1:8000" : "https://ml-audit-pro.onrender.com";
 
@@ -77,13 +79,16 @@ const handleAnalyze = async () => {
             destinataire: currentEmail,
             sujet: `Confirmation de solde - ${mission.raison_sociale}`,
             corps: editorContent
-        });
+        }, { timeout: 30000 });
         if (res.data.success) {
             await updateStatus(selectedTier.id, "ENVOYÉ");
             alert("Email envoyé !");
             setSelectedTier(null);
         }
-    } catch (e) { alert("Erreur envoi"); }
+    } catch (e) {
+        const message = e.response?.data?.detail || e.response?.data?.message || e.message || "Erreur envoi";
+        alert(message);
+    }
     finally { setSending(false); }
   };
 

@@ -652,6 +652,9 @@ async def send_email_api(req: EmailRequest):
     SENDER_EMAIL = os.getenv("EMAIL_USER")
     SENDER_PASSWORD = os.getenv("EMAIL_PASS")
 
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        raise HTTPException(status_code=500, detail="Configuration email manquante sur Render : EMAIL_USER ou EMAIL_PASS")
+
 
     try:
         msg = MIMEMultipart()
@@ -663,18 +666,20 @@ async def send_email_api(req: EmailRequest):
         msg.attach(MIMEText(req.corps, 'html'))
 
         # Connexion sécurisée
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(SENDER_EMAIL, req.destinataire, text)
-        server.quit()
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=20)
+        try:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            text = msg.as_string()
+            server.sendmail(SENDER_EMAIL, req.destinataire, text)
+        finally:
+            server.quit()
         
         return {"success": True, "message": "Email envoyé avec succès !"}
 
     except Exception as e:
         print(f"Erreur envoi mail: {e}")
-        return {"success": False, "message": f"Erreur technique : {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Erreur email : {str(e)}")
     
 
 @app.get("/anomalies/{mission_id}/{cycle_code}")
